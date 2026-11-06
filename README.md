@@ -72,7 +72,7 @@ Elle complète Docorga (agenda, facturation) et Indy (comptabilité), qui ne son
   le dossier de l'appareil de la collègue.
 - **Espace famille** : un parent invité se connecte par lien e-mail et ne voit que les comptes
   rendus publiés pour son enfant.
-- **Reprise d'ErgoCabinet** (Paramètres) : voir [docs/reprise-ergocabinet.md](docs/reprise-ergocabinet.md).
+- **Importer des notes** (Paramètres) : depuis un tableau Excel/CSV (une ligne par séance : patient, date, note ; patients manquants créés si on le souhaite), depuis un texte ou un document Word pour un patient (une nouvelle note à chaque ligne qui commence par une date), ou depuis l'ancienne application ErgoCabinet : voir [docs/reprise-ergocabinet.md](docs/reprise-ergocabinet.md).
 
 ### Règles de fonctionnement
 

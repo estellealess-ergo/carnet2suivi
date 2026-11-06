@@ -20,14 +20,14 @@ const LABEL: Record<string, string> = {
 };
 
 /** Étape 4 : reprise des données exportées de l'ancien ErgoCabinet. */
-export function ImportErgoCabinet() {
+export function ImportErgoCabinet({ embedded = false }: { embedded?: boolean } = {}) {
   const input = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<{ data: Converted; report: Report; ignored: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
 
   return (
-    <section className="rounded-lg border border-rule bg-sheet p-5">
-      <h2 className="mb-2">Reprendre les données d'ErgoCabinet</h2>
+    <section className={embedded ? "" : "rounded-lg border border-rule bg-sheet p-5"}>
+      {!embedded && <h2 className="mb-2">Reprendre les données d'ErgoCabinet</h2>}
       <p className="mb-3 text-ink-soft">
         Sélectionne les fichiers exportés de l'ancienne application (un fichier par table, au format CSV ou JSON :
         patients, progress_notes, next_session_plans, tasks, assessments, goals, goal_progress, guardians,

@@ -1,7 +1,7 @@
 {
   "name": "carnet2suivi",
   "version": "0.1.0",
-  "description": "Carnet de suivi \u2014 logiciel de cabinet d\u2019ergoth\u00e9rapie (hors ligne d\u2019abord, installable)",
+  "description": "Carnet de suivi — logiciel de cabinet d’ergothérapie (hors ligne d’abord, installable)",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p . && vite build",
@@ -31,9 +31,11 @@
     "dexie-react-hooks": "^1.1.7",
     "docx": "^9.15.2",
     "lucide-react": "^1.69.0",
+    "mammoth": "^1.13.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router": "^7.18.5",
+    "read-excel-file": "^9.3.14",
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {

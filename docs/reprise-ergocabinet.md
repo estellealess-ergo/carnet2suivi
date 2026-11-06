@@ -25,7 +25,7 @@ la table d'après le nom.
 ## 2. Reprendre dans le Carnet de suivi
 
 1. Se connecter au Carnet de suivi.
-2. Paramètres → « Reprendre les données d'ErgoCabinet » → « Choisir les fichiers ».
+2. Paramètres → « Importer des notes » → « L'ancienne application ErgoCabinet » → « Choisir les fichiers ».
 3. Sélectionner tous les fichiers d'un coup. L'écran affiche ce qui va être repris et ce qui est ignoré.
 4. « Reprendre ces données ». La synchronisation envoie tout au serveur.
 

@@ -2,7 +2,7 @@ import { Download, LogOut, RefreshCw, Smartphone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AssistantSettings } from "@/components/AssistantSettings";
 import { BackupSection } from "@/components/BackupSection";
-import { ImportErgoCabinet } from "@/components/ImportErgoCabinet";
+import { ImportNotes } from "@/components/ImportNotes";
 import { GmailSettings, TeamSettings } from "@/components/TeamSettings";
 import { Button, Modal, PageHeader } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
@@ -106,7 +106,7 @@ export function Settings() {
           )}
         </section>
 
-        <ImportErgoCabinet />
+        <ImportNotes />
 
         <AssistantSettings />
         <BackupSection />
