@@ -16,6 +16,9 @@ const FIELDS = [
   ["recommendations", "Préconisations"],
 ] as const;
 
+/** Tests utilisés au cabinet : un clic les ajoute au bilan. */
+export const USUAL_TESTS = ["MABC-3", "MANOS", "BHK", "DTVP-3", "DTVP-A", "D2-R", "EVIC", "MOHOST"];
+
 type Values = Pick<Assessment, "assessment_date" | (typeof FIELDS)[number][0]>;
 
 export function AssessmentsTab({ patient }: { patient: Patient }) {
@@ -128,6 +131,37 @@ function AssessmentForm({
       <Field label="Date du bilan" className="w-48">
         <Input type="date" value={v.assessment_date ?? ""} onChange={(e) => setV({ ...v, assessment_date: e.target.value || null })} />
       </Field>
+      <div>
+        <p className="mb-1 text-sm font-semibold">Tests passés</p>
+        <div className="flex flex-wrap gap-1.5">
+          {USUAL_TESTS.map((t) => {
+            const used = (v.tests_used ?? "").split(/,\s*/).includes(t);
+            return (
+              <button
+                key={t}
+                type="button"
+                aria-pressed={used}
+                onClick={() =>
+                  setV((x) => {
+                    const list = (x.tests_used ?? "").split(/,\s*/).filter(Boolean);
+                    if (list.includes(t)) return { ...x, tests_used: list.filter((y) => y !== t).join(", ") || null };
+                    const results = x.results ?? "";
+                    return {
+                      ...x,
+                      tests_used: [...list, t].join(", "),
+                      // Une ligne prête à compléter pour les résultats de ce test.
+                      results: results.includes(`${t} :`) ? results : `${results ? `${results}\n` : ""}${t} : `,
+                    };
+                  })
+                }
+                className={`rounded-full border px-3 py-1 text-sm font-semibold ${used ? "border-pen bg-pen text-white" : "border-rule hover:border-pen"}`}
+              >
+                {t}
+              </button>
+            );
+          })}
+        </div>
+      </div>
       {FIELDS.map(([k, label]) => (
         <Field key={k} label={label}>
           <Textarea value={v[k] ?? ""} onChange={(e) => setV({ ...v, [k]: e.target.value || null })} className="min-h-20" />

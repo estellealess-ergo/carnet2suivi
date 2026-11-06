@@ -1,11 +1,12 @@
-import { CalendarClock, History, MessageCircleQuestion, Sparkles, Undo2 } from "lucide-react";
+import { CalendarClock, ClipboardPaste, Copy, History, MessageCircleQuestion, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
-import { askAssistant, assistantAvailable } from "@/lib/assistant";
+import { askAssistant, assistantAvailable, copyForClaude, pasteFromClaude } from "@/lib/assistant";
+import { useLocalAi } from "@/lib/local-ai";
 import { fmtDateTime, fmtDay, localDay } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { htmlToText, isEmptyHtml, textToHtml } from "@/lib/html";
 import { fullName } from "@/lib/labels";
-import { useForecasts, useNoteVersions } from "@/lib/queries";
+import { useForecasts, useGoals, useNoteVersions } from "@/lib/queries";
 import { create, update } from "@/lib/repo";
 import type { Forecast, Note, NoteKind, Patient } from "@/lib/types";
 import { RichEditor } from "./RichEditor";
@@ -28,19 +29,22 @@ export function NoteEditor({
   onDone,
   compact,
   closeRef,
+  defaultDate,
 }: {
   patient: Patient;
   note?: Note | null;
   kind?: NoteKind;
   onDone: () => void;
   compact?: boolean;
+  /** Date proposée pour une nouvelle note de séance (ex. la journée affichée). Aujourd'hui sinon. */
+  defaultDate?: string;
   /** Permet au conteneur (fenêtre, onglet) de demander la fermeture en passant par le garde. */
   closeRef?: MutableRefObject<(() => void) | null>;
 }) {
   const draftKey = `note:${note?.id ?? `new:${kind}:${patient.id}`}`;
   const initialHtml = note?.content_html ?? "";
   // Les observations de séance sont datées du jour par défaut ; la date reste modifiable.
-  const initialDate = note?.note_date ?? (kind === "seance" ? localDay() : "");
+  const initialDate = note?.note_date ?? (kind === "seance" ? (defaultDate ?? localDay()) : "");
 
   const [html, setHtml] = useState(initialHtml);
   const [day, setDay] = useState(initialDate);
@@ -49,6 +53,9 @@ export function NoteEditor({
   /** Texte avant la mise au propre (pour revenir en arrière, non conservé). */
   const [beforeCleanup, setBeforeCleanup] = useState<string | null>(null);
   const [debrief, setDebrief] = useState(false);
+  const goals = useGoals(kind === "seance" ? patient.id : undefined).filter((g) => g.status === "en_cours" || note?.goal_ids?.includes(g.id));
+  const initialGoalIds = useMemo(() => note?.goal_ids ?? [], [note?.goal_ids]);
+  const [goalIds, setGoalIds] = useState<string[]>(initialGoalIds);
   const [transfers, setTransfers] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<{ html: string; saved_at: string; note_date: string | null; jots?: string[] } | null>(null);
@@ -57,7 +64,11 @@ export function NoteEditor({
   const releaseRef = useRef<(() => void) | null>(null);
 
   const dirty =
-    html !== initialHtml || day !== initialDate || transfers.length > 0 || jots.join("\n") !== initialJots.join("\n");
+    html !== initialHtml ||
+    day !== initialDate ||
+    transfers.length > 0 ||
+    jots.join("\n") !== initialJots.join("\n") ||
+    goalIds.join() !== initialGoalIds.join();
 
   // Brouillon de secours : proposé à la réouverture s'il diffère de la note.
   useEffect(() => {
@@ -92,8 +103,8 @@ export function NoteEditor({
     const content = isEmptyHtml(html) ? buildNoteHtml({ fait: "", observe: jots.join(" ; "), reprendre: "" }) : html;
     try {
       const saved = note
-        ? (await update("notes", note.id, { content_html: content, note_date: day, raw_text: raw }), note)
-        : await create("notes", { patient_id: patient.id, kind, note_date: day, content_html: content, raw_text: raw });
+        ? (await update("notes", note.id, { content_html: content, note_date: day, raw_text: raw, goal_ids: goalIds }), note)
+        : await create("notes", { patient_id: patient.id, kind, note_date: day, content_html: content, raw_text: raw, goal_ids: goalIds });
       for (const id of transfers) await update("forecasts", id, { status: "transferee", note_id: saved.id });
       savedRef.current = true;
       releaseRef.current?.();
@@ -105,17 +116,18 @@ export function NoteEditor({
       toast((e as Error).message, "error");
       return false;
     }
-  }, [day, html, jots, note, patient.id, kind, transfers, draftKey, onDone]);
+  }, [day, html, jots, goalIds, note, patient.id, kind, transfers, draftKey, onDone]);
 
   const label = `${kind === "seance" ? "Note de séance" : "Note"} — ${fullName(patient)}`;
   const guard = useUnsavedGuard({ dirty, label, onSave: save });
   releaseRef.current = guard.release;
   if (closeRef) closeRef.current = () => guard.askBeforeClose(onDone);
 
+  const sourceText = () =>
+    [htmlToText(html), jots.length ? `Mots-clés de séance : ${jots.join(" ; ")}` : ""].filter(Boolean).join("\n\n");
+
   async function cleanUp() {
-    const text = [htmlToText(html), jots.length ? `Mots-clés de séance : ${jots.join(" ; ")}` : ""]
-      .filter(Boolean)
-      .join("\n\n");
+    const text = sourceText();
     if (!text) return;
     setBusy(true);
     try {
@@ -136,7 +148,9 @@ export function NoteEditor({
     setTransfers((t) => [...t, f.id]);
   }
 
-  const canAssist = useMemo(() => assistantAvailable(), []);
+  useLocalAi(); // se remet à jour quand l'assistant de l'ordinateur devient disponible
+  const canAssist = assistantAvailable();
+  const empty = isEmptyHtml(html) && jots.length === 0;
 
   return (
     <div className={cx("flex flex-col", compact ? "h-full" : "")}>
@@ -177,12 +191,43 @@ export function NoteEditor({
         {canAssist && (
           <Button
             onClick={cleanUp}
-            disabled={busy || (isEmptyHtml(html) && jots.length === 0)}
+            disabled={busy || empty}
             title="Corrige et range la note en trois rubriques : Fait, Observé, À reprendre"
           >
             <Sparkles className="size-4" />
             {busy ? "Mise au propre…" : "Mettre au propre"}
           </Button>
+        )}
+        {!canAssist && (
+          <>
+            <Button
+              variant="ghost"
+              disabled={empty}
+              title="Copie la note (nom du patient masqué) avec les consignes, à coller dans Claude"
+              onClick={async () => {
+                await copyForClaude("note", sourceText(), patient);
+                toast("Copié. Colle-le dans Claude, puis copie sa réponse et clique sur « Coller la réponse ».");
+              }}
+            >
+              <Copy className="size-4" /> Copier pour Claude
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={empty}
+              onClick={async () => {
+                try {
+                  const out = await pasteFromClaude(patient);
+                  setBeforeCleanup(html);
+                  setHtml(textToHtml(out));
+                  toast("Réponse reprise dans la note. Relis-la avant d'enregistrer.");
+                } catch (e) {
+                  toast((e as Error).message, "error");
+                }
+              }}
+            >
+              <ClipboardPaste className="size-4" /> Coller la réponse
+            </Button>
+          </>
         )}
         {beforeCleanup !== null && (
           <Button
@@ -227,6 +272,30 @@ export function NoteEditor({
       {kind === "seance" && (
         <div className="mb-3 space-y-3">
           <QuickCapture jots={jots} onChange={setJots} />
+          {goals.length > 0 && (
+            <div>
+              <p className="mb-1 text-sm font-semibold">Objectifs travaillés</p>
+              <div className="flex flex-wrap gap-1.5">
+                {goals.map((g) => {
+                  const on = goalIds.includes(g.id);
+                  return (
+                    <button
+                      key={g.id}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setGoalIds((ids) => (on ? ids.filter((x) => x !== g.id) : [...ids, g.id]))}
+                      className={cx(
+                        "rounded-full border px-3 py-1 text-left text-sm",
+                        on ? "border-pen bg-pen-soft font-semibold text-pen" : "border-rule text-ink-soft hover:border-pen",
+                      )}
+                    >
+                      {g.title}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <Button variant="primary" onClick={() => setDebrief(true)}>
             <MessageCircleQuestion className="size-4" /> Débrief de la séance
           </Button>
@@ -339,11 +408,13 @@ export function NoteModal({
   note,
   kind = "seance",
   onDone,
+  defaultDate,
 }: {
   patient: Patient | null;
   note?: Note | null;
   kind?: NoteKind;
   onDone: () => void;
+  defaultDate?: string;
 }) {
   const closeRef = useRef<(() => void) | null>(null);
   const title = patient
@@ -351,7 +422,7 @@ export function NoteModal({
     : "";
   return (
     <Modal open={patient !== null} onClose={() => closeRef.current?.()} title={title} wide>
-      {patient && <NoteEditor patient={patient} note={note} kind={kind} onDone={onDone} closeRef={closeRef} />}
+      {patient && <NoteEditor patient={patient} note={note} kind={kind} onDone={onDone} closeRef={closeRef} defaultDate={defaultDate} />}
     </Modal>
   );
 }

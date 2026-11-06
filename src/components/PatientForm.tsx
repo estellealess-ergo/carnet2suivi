@@ -1,5 +1,6 @@
 import { useRef, useState, type MutableRefObject } from "react";
-import { WEEKDAYS } from "@/lib/dates";
+import { WEEKDAYS, localDay } from "@/lib/dates";
+import { weekParity } from "@/lib/schedule";
 import { FREQUENCY_LABEL, PLACE_LABEL, STATUS_LABEL } from "@/lib/labels";
 import { create, update } from "@/lib/repo";
 import type { Patient } from "@/lib/types";
@@ -17,6 +18,7 @@ const EMPTY: Values = {
   usual_time: null,
   usual_place: null,
   frequency: null,
+  week_parity: null,
   day_order: 99,
   sort_order: 0,
   school_name: null,
@@ -150,6 +152,15 @@ export function PatientForm({
             ))}
           </Select>
         </Field>
+        {v.frequency === "bimensuel" && (
+          <Field label="Semaines de séance" hint={`Cette semaine est une semaine ${weekParity(localDay())}.`}>
+            <Select value={v.week_parity ?? ""} onChange={(e) => set("week_parity", (e.target.value || null) as Values["week_parity"])}>
+              <option value="">Toutes les semaines (à préciser)</option>
+              <option value="paire">Semaines paires</option>
+              <option value="impaire">Semaines impaires</option>
+            </Select>
+          </Field>
+        )}
         <Field label="Début du suivi">
           <Input type="date" {...text("care_start_date")} />
         </Field>

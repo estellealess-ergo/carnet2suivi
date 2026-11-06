@@ -47,3 +47,6 @@ français, en langage simple et non technique. Voir README.md pour l'état des �
   Ne jamais committer de fichier `.env`, de clé, de donnée de patient, ni de nom ou d'adresse
   e-mail personnels (dépôt public). Auteur des commits : `estellealess-ergo <estellealess-ergo@users.noreply.github.com>`.
 - Envoi aux familles : WhatsApp par lien (un clic par contact), pas d'API payante.
+- Assistant sans serveur : IA intégrée à Chrome (`src/lib/local-ai.ts`, consignes dans `src/lib/prompts.ts`)
+  ou copier-coller vers Claude avec pseudonymisation (`copyForClaude` / `pasteFromClaude`).
+- Documents joints : table locale `documents` (non synchronisée), incluse dans la sauvegarde chiffrée.

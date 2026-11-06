@@ -1,10 +1,10 @@
-import { Copy, Mail, MessageCircle, MessageSquare, Sparkles } from "lucide-react";
+import { ClipboardPaste, Copy, Mail, MessageCircle, MessageSquare, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { sanitize } from "@/components/NoteEditor";
 import { DictationTextarea } from "@/components/DictationTextarea";
 import { Button, Empty, Field, Input, PageHeader, Pill, cx, toast } from "@/components/ui";
 import { useUnsavedGuard } from "@/components/UnsavedGuard";
-import { askAssistant, assistantAvailable } from "@/lib/assistant";
+import { askAssistant, assistantAvailable, copyForClaude, pasteFromClaude } from "@/lib/assistant";
 import { getMailAccount, sendEmail, type MailAccount } from "@/lib/comms";
 import { fmtDay, fmtLongDay, localDay } from "@/lib/dates";
 import { htmlToText } from "@/lib/html";
@@ -169,6 +169,33 @@ function ReportCard({
           >
             <Sparkles className="size-4" /> {busy === "ia" ? "Rédaction…" : "Proposer un message"}
           </Button>
+        )}
+        {!assistantAvailable() && (
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={async () => {
+                await copyForClaude("famille", htmlToText(note.content_html), patient);
+                toast("Copié. Colle-le dans Claude, puis copie sa réponse et clique sur « Coller la réponse ».");
+              }}
+            >
+              <Copy className="size-4" /> Copier pour Claude
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={async () => {
+                try {
+                  setRecap(await pasteFromClaude(patient));
+                } catch (e) {
+                  toast((e as Error).message, "error");
+                }
+              }}
+            >
+              <ClipboardPaste className="size-4" /> Coller la réponse
+            </Button>
+          </>
         )}
         {dirty && (
           <Button size="sm" variant="ghost" onClick={() => void saveReport().then(() => toast("Brouillon enregistré"))}>

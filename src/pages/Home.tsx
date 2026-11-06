@@ -1,7 +1,10 @@
 import { Link } from "react-router";
 import { DueLabel, TaskRow } from "@/components/bits";
 import { PageHeader, Pill } from "@/components/ui";
-import { bucketByHorizon, fmtLongDay, localDay, relativeDay, weekdayOf } from "@/lib/dates";
+import { useLiveQuery } from "dexie-react-hooks";
+import { bucketByHorizon, fmtLongDay, localDay, relativeDay } from "@/lib/dates";
+import { db } from "@/lib/db";
+import { patientsForDay } from "@/lib/schedule";
 import { fullName } from "@/lib/labels";
 import { useForecasts, usePatients, useTasks } from "@/lib/queries";
 import type { Forecast, Patient, Task } from "@/lib/types";
@@ -25,7 +28,8 @@ export function Home() {
   ];
   const { overdue, days } = bucketByHorizon(items, (i) => (i.kind === "task" ? i.t.due_date : i.f.planned_date), today);
   const undatedUrgent = tasks.filter((t) => t.urgent && !t.due_date);
-  const todays = patients.filter((p) => p.usual_day === weekdayOf(today) && (p.status === "actif" || p.status === "bilan"));
+  const changes = useLiveQuery(() => db.day_changes.where("day").equals(today).toArray(), [today]) ?? [];
+  const todays = patientsForDay(patients, changes, today).entries;
 
   return (
     <>

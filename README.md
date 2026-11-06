@@ -36,6 +36,16 @@ Elle complète Docorga (agenda, facturation) et Indy (comptabilité), qui ne son
 - **Notes de séance** : texte mis en forme (gras, italique, souligné, couleurs, listes), dictée,
   mise au propre en trois rubriques par l'assistant, retour au texte d'origine, historique des
   versions, brouillon de secours enregistré toutes les 3 secondes.
+- **Recherche rapide** : en haut à gauche, ou Ctrl+K (Cmd+K sur Mac), depuis n'importe quelle page.
+- **Ma journée par date** : jour précédent / suivant, rythme une semaine sur deux (semaines paires ou
+  impaires), « Pas de séance ce jour-là » et « Ajouter un patient ce jour-là » pour les changements ponctuels.
+- **Documents** (onglet de la fiche) : PDF, images, courriers, gardés sur l'appareil et inclus dans la
+  sauvegarde chiffrée.
+- **Bilans** : boutons pour les tests habituels du cabinet. **Objectifs travaillés** cochés dans la note
+  de séance, visibles dans l'onglet Objectifs.
+- **Assistant de rédaction sans serveur** : IA intégrée à Chrome sur ordinateur (gratuite, le texte ne
+  quitte pas l'appareil), à activer dans Paramètres ; sinon « Copier pour Claude » / « Coller la
+  réponse », avec le nom du patient masqué.
 - **Notes côte à côte** : jusqu'à six notes ouvertes en même temps. On coche les patients sur la
   page (patients du jour en premier) ou directement dans Ma journée.
 - **Prévisions** : reprises dans une note en un clic ; elles disparaissent alors de la liste et

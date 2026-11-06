@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { Draft, OutboxEntry, Tables } from "./types";
+import type { Draft, OutboxEntry, PatientDocument, Tables } from "./types";
 
 /**
  * Base locale de l'appareil (IndexedDB).
@@ -19,6 +19,9 @@ export class LocalDb extends Dexie {
   communications!: Table<Tables["communications"], string>;
   family_reports!: Table<Tables["family_reports"], string>;
   patient_shares!: Table<Tables["patient_shares"], string>;
+  day_changes!: Table<Tables["day_changes"], string>;
+  /** Documents joints : sur l'appareil uniquement (non synchronisés), inclus dans la sauvegarde. */
+  documents!: Table<PatientDocument, string>;
   outbox!: Table<OutboxEntry, number>;
   drafts!: Table<Draft, string>;
   meta!: Table<{ key: string; value: unknown }, string>;
@@ -48,6 +51,11 @@ export class LocalDb extends Dexie {
     });
     // Plus aucun enregistrement audio : la table d'attente est supprimée.
     this.version(3).stores({ pending_audio: null });
+    // Planning par date et documents joints.
+    this.version(4).stores({
+      day_changes: "id, patient_id, day, updated_at",
+      documents: "id, patient_id, updated_at",
+    });
   }
 }
 

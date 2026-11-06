@@ -1,9 +1,10 @@
-import { ArrowLeft, FileDown, NotebookPen, Pencil, Plus, StickyNote, Trash2, Undo2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { ArrowLeft, FileDown, NotebookPen, Pencil, Plus, Search, StickyNote, Trash2, Undo2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ForecastForm, ForecastRow, PinnedInfo, TaskForm, TaskRow } from "@/components/bits";
 import { AssessmentsTab } from "@/components/AssessmentsTab";
 import { CommsTab } from "@/components/Comms";
+import { DocumentsTab } from "@/components/DocumentsTab";
 import { FamilyTab } from "@/components/FamilyTab";
 import { GoalsTab } from "@/components/GoalsTab";
 import { ShareSection } from "@/components/ShareSection";
@@ -11,6 +12,9 @@ import { NoteModal, sanitize } from "@/components/NoteEditor";
 import { PatientForm } from "@/components/PatientForm";
 import { Button, Empty, Field, Input, Modal, PageHeader, Pill, cx, toast } from "@/components/ui";
 import { ageFrom, fmtDay } from "@/lib/dates";
+import { htmlToText } from "@/lib/html";
+import { matches } from "@/lib/search";
+import { rawToJots } from "@/lib/session-note";
 import { FREQUENCY_LABEL, PLACE_LABEL, STATUS_LABEL, fullName } from "@/lib/labels";
 import { useAssessments, useForecasts, useGoals, useNotes, usePatient, useTasks } from "@/lib/queries";
 import { remove, update } from "@/lib/repo";
@@ -22,6 +26,7 @@ const TABS = [
   { id: "taches", label: "À préparer" },
   { id: "bilans", label: "Bilans" },
   { id: "objectifs", label: "Objectifs" },
+  { id: "documents", label: "Documents" },
   { id: "echanges", label: "Échanges" },
   { id: "famille", label: "Famille" },
   { id: "infos", label: "Informations" },
@@ -94,6 +99,7 @@ export function PatientDetail() {
       {tab === "taches" && <TasksTab patient={patient} />}
       {tab === "bilans" && <AssessmentsTab patient={patient} />}
       {tab === "objectifs" && <GoalsTab patient={patient} />}
+      {tab === "documents" && <DocumentsTab patient={patient} />}
       {tab === "echanges" && <CommsTab patient={patient} />}
       {tab === "famille" && <FamilyTab patient={patient} />}
       {tab === "infos" && <InfosTab patient={patient} />}
@@ -104,8 +110,25 @@ export function PatientDetail() {
 }
 
 function NotesTab({ patient }: { patient: Patient }) {
-  const notes = useNotes(patient.id);
-  const [editing, setEditing] = useState<{ note: Note | null; kind: NoteKind } | null>(null);
+  const all = useNotes(patient.id);
+  const [params, setParams] = useSearchParams();
+  // Ouverture directe d'une nouvelle note (depuis la recherche rapide).
+  const [editing, setEditing] = useState<{ note: Note | null; kind: NoteKind } | null>(() =>
+    params.get("nouvelle") ? { note: null, kind: "seance" } : null,
+  );
+  useEffect(() => {
+    if (params.get("nouvelle")) setParams({ onglet: "notes" }, { replace: true });
+  }, [params, setParams]);
+  const [q, setQ] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const filtering = Boolean(q.trim() || from || to);
+  const notes = all.filter(
+    (n) =>
+      (!from || n.note_date >= from) &&
+      (!to || n.note_date <= to) &&
+      (!q.trim() || matches(`${htmlToText(n.content_html)} ${rawToJots(n.raw_text).join(" ")}`, q)),
+  );
   const general = notes.filter((n) => n.kind === "generale");
   const sessions = notes.filter((n) => n.kind === "seance");
 
@@ -120,6 +143,40 @@ function NotesTab({ patient }: { patient: Patient }) {
         </Button>
       </div>
 
+      {all.length > 3 && (
+        <div className="mb-5 flex flex-wrap items-end gap-2 rounded-lg border border-rule bg-sheet p-3">
+          <Field label="Chercher dans les notes" className="min-w-52 flex-1">
+            <div className="relative">
+              <Search className="pointer-events-none absolute top-3 left-3 size-4 text-ink-soft" />
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ex. ciseaux, BHK, fatigue" className="pl-9" />
+            </div>
+          </Field>
+          <Field label="Du" className="w-40">
+            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </Field>
+          <Field label="Au" className="w-40">
+            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </Field>
+          {filtering && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setQ("");
+                setFrom("");
+                setTo("");
+              }}
+            >
+              Tout afficher
+            </Button>
+          )}
+          {filtering && (
+            <p className="w-full text-sm text-ink-soft">
+              {notes.length} note{notes.length > 1 ? "s" : ""} sur {all.length}
+            </p>
+          )}
+        </div>
+      )}
+
       {general.length > 0 && (
         <section className="mb-8">
           <h2 className="mb-2">Notes générales</h2>
@@ -130,7 +187,7 @@ function NotesTab({ patient }: { patient: Patient }) {
       <section>
         <h2 className="mb-2">Notes de séance</h2>
         {sessions.length === 0 ? (
-          <Empty>Aucune note de séance pour l'instant.</Empty>
+          <Empty>{filtering ? "Aucune note ne correspond à cette recherche." : "Aucune note de séance pour l'instant."}</Empty>
         ) : (
           <NoteList notes={sessions} onEdit={(note) => setEditing({ note, kind: "seance" })} />
         )}
@@ -148,6 +205,8 @@ function NotesTab({ patient }: { patient: Patient }) {
 
 function NoteList({ notes, onEdit }: { notes: Note[]; onEdit: (n: Note) => void }) {
   const [confirm, setConfirm] = useState<Note | null>(null);
+  const goals = useGoals(notes[0]?.patient_id);
+  const goalTitle = new Map(goals.map((g) => [g.id, g.title]));
   return (
     <>
       <ol className="space-y-3">
@@ -165,6 +224,15 @@ function NoteList({ notes, onEdit }: { notes: Note[]; onEdit: (n: Note) => void 
               </span>
             </div>
             <div className="prose-note sheet-margin py-3 pr-4 pl-12" dangerouslySetInnerHTML={{ __html: sanitize(n.content_html) }} />
+            {(n.goal_ids?.length ?? 0) > 0 && (
+              <div className="flex flex-wrap gap-1.5 border-t border-rule px-4 py-2">
+                {n.goal_ids!.filter((id) => goalTitle.has(id)).map((id) => (
+                  <Pill key={id} tone="pen">
+                    {goalTitle.get(id)}
+                  </Pill>
+                ))}
+              </div>
+            )}
           </li>
         ))}
       </ol>

@@ -3,7 +3,7 @@ import { useRef, useState, type MutableRefObject } from "react";
 import { askAssistant, assistantAvailable } from "@/lib/assistant";
 import { fmtDay, localDay } from "@/lib/dates";
 import { GOAL_STATUS_LABEL } from "@/lib/labels";
-import { useGoalProgress, useGoals } from "@/lib/queries";
+import { useGoalProgress, useGoals, useNotes } from "@/lib/queries";
 import { create, remove, update } from "@/lib/repo";
 import type { Goal, GoalStatus, Patient } from "@/lib/types";
 import { Button, Empty, Field, Input, Modal, Pill, Select, Textarea, toast } from "./ui";
@@ -12,6 +12,7 @@ import { useUnsavedGuard } from "./UnsavedGuard";
 export function GoalsTab({ patient }: { patient: Patient }) {
   const goals = useGoals(patient.id);
   const progress = useGoalProgress(patient.id);
+  const notes = useNotes(patient.id).filter((n) => n.kind === "seance");
   const [editing, setEditing] = useState<Goal | "new" | null>(null);
   const [rating, setRating] = useState<Goal | null>(null);
   const closeRef = useRef<(() => void) | null>(null);
@@ -49,6 +50,16 @@ export function GoalsTab({ patient }: { patient: Patient }) {
                   </div>
                   <span className="w-12 text-right font-semibold tabular-nums">{g.progress} %</span>
                 </div>
+                {(() => {
+                  const worked = notes.filter((n) => n.goal_ids?.includes(g.id));
+                  return (
+                    <p className="mt-2 text-sm">
+                      {worked.length === 0
+                        ? "Pas encore coché dans une note de séance."
+                        : `Travaillé en ${worked.length} séance${worked.length > 1 ? "s" : ""}, la dernière le ${fmtDay(worked[0]!.note_date)}.`}
+                    </p>
+                  );
+                })()}
                 <div className="mt-2 flex flex-wrap gap-x-4 text-sm text-ink-soft">
                   {g.target_date && <span>Échéance : {fmtDay(g.target_date)}</span>}
                   {g.review_date && <span>À réévaluer le {fmtDay(g.review_date)}</span>}

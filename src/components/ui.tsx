@@ -148,7 +148,17 @@ export function Modal({
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) d.showModal();
+    if (open && !d.open) {
+      d.showModal();
+      // showModal() place le curseur sur le premier bouton (la croix) : on le remet dans le
+      // premier champ de saisie, pour pouvoir taper tout de suite.
+      requestAnimationFrame(() => {
+        const target = d.querySelector<HTMLElement>(
+          '.ProseMirror, input:not([type=hidden]):not([type=checkbox]):not([type=date]):not([disabled]), textarea, select, input[type=date]',
+        );
+        target?.focus();
+      });
+    }
     if (!open && d.open) d.close();
   }, [open]);
   return (

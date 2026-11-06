@@ -4,7 +4,7 @@
  * Sans le mot de passe, le fichier est illisible : il peut être rangé sur une clé USB.
  */
 import { db, getMeta, setMeta } from "./db";
-import { TABLES, type SyncedRow } from "./types";
+import { TABLES, type PatientDocument, type SyncedRow } from "./types";
 
 const ITERATIONS = 310_000;
 
@@ -60,10 +60,24 @@ export async function decrypt(file: EncryptedFile, password: string): Promise<Pa
 export async function buildBackup(password: string): Promise<Blob> {
   const data: Record<string, unknown[]> = {};
   for (const t of TABLES) data[t] = await db.table(t).toArray();
+  // Documents joints : le fichier est converti en texte pour tenir dans la sauvegarde.
+  data.documents = await Promise.all(
+    (await db.documents.toArray()).map(async ({ blob, ...d }) => ({ ...d, blob_b64: b64(await readBlob(blob)) })),
+  );
   const payload: Payload = { app: "carnet2suivi", version: 1, exported_at: new Date().toISOString(), data };
   const file = await encrypt(payload, password);
   await setMeta("lastBackupAt", new Date().toISOString());
   return new Blob([JSON.stringify(file)], { type: "application/json" });
+}
+
+function readBlob(blob: Blob): Promise<ArrayBuffer> {
+  if (typeof blob.arrayBuffer === "function") return blob.arrayBuffer();
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result as ArrayBuffer);
+    r.onerror = () => reject(r.error);
+    r.readAsArrayBuffer(blob);
+  });
 }
 
 export function isEncrypted(json: unknown): json is EncryptedFile {
@@ -82,6 +96,13 @@ export async function restoreBackup(text: string, password: string | null): Prom
     json = await decrypt(json, password);
   }
   let n = 0;
+  for (const d of (json.data?.documents ?? []) as (Record<string, unknown> & { id: string; updated_at: string; blob_b64: string; mime: string })[]) {
+    const local = await db.documents.get(d.id);
+    if (local && local.updated_at >= d.updated_at) continue;
+    const { blob_b64, ...rest } = d;
+    await db.documents.put({ ...rest, blob: new Blob([unb64(blob_b64) as BlobPart], { type: d.mime }) } as unknown as PatientDocument);
+    n++;
+  }
   await db.transaction("rw", [...TABLES.map((t) => db.table(t)), db.outbox], async () => {
     for (const t of TABLES) {
       const rows = (json.data?.[t] ?? []) as SyncedRow[];

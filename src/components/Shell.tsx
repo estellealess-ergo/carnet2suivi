@@ -23,6 +23,7 @@ import { fmtDateTime } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
 import { syncNow, useSyncState } from "@/lib/sync-controller";
+import { QuickSearch } from "./QuickSearch";
 import { GuardProvider } from "./UnsavedGuard";
 import { Button, cx, registerToastHost } from "./ui";
 
@@ -57,6 +58,7 @@ export function Shell() {
             </span>
             <span className="hidden text-[1.05rem] leading-tight font-bold lg:block">Carnet de suivi</span>
           </div>
+          <QuickSearch />
           <nav className="flex flex-1 flex-col gap-1 px-2 lg:px-3">
             {NAV.map(({ to, label, icon: Icon, end }) => (
               <NavLink

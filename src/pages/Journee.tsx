@@ -1,93 +1,172 @@
-import { ArrowDown, ArrowUp, CalendarPlus, Columns3, GripVertical, NotebookPen } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  CalendarPlus,
+  CalendarX,
+  ChevronLeft,
+  ChevronRight,
+  Columns3,
+  GripVertical,
+  NotebookPen,
+  Undo2,
+  UserPlus,
+} from "lucide-react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { ForecastForm, ForecastRow, PinnedInfo } from "@/components/bits";
 import { NoteModal, sanitize } from "@/components/NoteEditor";
 import { MAX_SIDE_BY_SIDE } from "@/components/PatientMultiPicker";
-import { Button, Empty, PageHeader, Pill, Select, cx } from "@/components/ui";
-import { WEEKDAYS, fmtDay, localDay, weekdayOf } from "@/lib/dates";
+import { Button, Empty, Field, Input, Modal, PageHeader, Pill, Select, cx, toast } from "@/components/ui";
+import { WEEKDAYS, addDays, fmtDay, fmtLongDay, localDay, relativeDay } from "@/lib/dates";
+import { db } from "@/lib/db";
 import { PLACE_LABEL, fullName } from "@/lib/labels";
 import { useForecasts, useNotes, usePatients } from "@/lib/queries";
-import { update } from "@/lib/repo";
+import { create, remove, update } from "@/lib/repo";
+import { patientsForDay, weekParity, type DayEntry } from "@/lib/schedule";
 import type { Patient, Weekday } from "@/lib/types";
 
+/**
+ * Ma journée, date par date : les patients du jour de suivi (y compris le rythme une semaine
+ * sur deux), moins les séances annulées, plus les séances ajoutées pour cette date.
+ */
 export function Journee() {
-  const [day, setDay] = useState<Weekday>(weekdayOf(localDay()));
+  const [params, setParams] = useSearchParams();
+  const today = localDay();
+  const day = params.get("date") ?? today;
+  const setDay = (d: string) => setParams(d === today ? {} : { date: d }, { replace: true });
+
   const patients = usePatients();
   const forecasts = useForecasts();
+  const changes = useLiveQuery(() => db.day_changes.where("day").equals(day).toArray(), [day]) ?? [];
   const [noteFor, setNoteFor] = useState<Patient | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [adding, setAdding] = useState(false);
   const navigate = useNavigate();
   const toggle = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : s.length >= MAX_SIDE_BY_SIDE ? s : [...s, id]));
 
-  const list = useMemo(
-    () =>
-      patients
-        .filter((p) => p.usual_day === day && (p.status === "actif" || p.status === "bilan"))
-        .sort((a, b) => a.day_order - b.day_order || (a.usual_time ?? "").localeCompare(b.usual_time ?? "")),
-    [patients, day],
-  );
+  const { entries, cancelled } = useMemo(() => patientsForDay(patients, changes, day), [patients, changes, day]);
 
   async function reorder(from: number, to: number) {
-    if (from === to || to < 0 || to >= list.length) return;
-    const next = [...list];
+    if (from === to || to < 0 || to >= entries.length) return;
+    const next = entries.map((e) => e.patient);
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved!);
     await Promise.all(next.map((p, i) => (p.day_order !== i ? update("patients", p.id, { day_order: i }) : null)));
   }
 
+  const changeFor = (patientId: string, kind: "ajout" | "annulation") =>
+    changes.find((c) => c.patient_id === patientId && c.kind === kind && !c.deleted_at);
+
   return (
     <>
       <PageHeader
         title="Ma journée"
-        subtitle={`${list.length} patient${list.length > 1 ? "s" : ""} le ${day.toLowerCase()}`}
+        subtitle={
+          <span className="first-letter:uppercase">
+            {relativeDay(day, today)} · {fmtLongDay(day)} · semaine {weekParity(day)} · {entries.length} patient
+            {entries.length > 1 ? "s" : ""}
+          </span>
+        }
         actions={
-          <Select value={day} onChange={(e) => setDay(e.target.value as Weekday)} className="w-40" aria-label="Jour affiché">
-            {WEEKDAYS.map((d) => (
-              <option key={d}>{d}</option>
-            ))}
-          </Select>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" onClick={() => setDay(addDays(day, -1))} aria-label="Jour précédent">
+              <ChevronLeft className="size-5" />
+            </Button>
+            <Input type="date" value={day} onChange={(e) => e.target.value && setDay(e.target.value)} className="w-40" aria-label="Date affichée" />
+            <Button variant="ghost" onClick={() => setDay(addDays(day, 1))} aria-label="Jour suivant">
+              <ChevronRight className="size-5" />
+            </Button>
+            {day !== today && <Button onClick={() => setDay(today)}>Aujourd'hui</Button>}
+          </div>
         }
       />
 
-      {list.length === 0 ? (
-        <Empty action={<Link to="/patients" className="font-semibold text-pen hover:underline">Ouvrir la liste des patients</Link>}>
-          Aucun patient suivi le {day.toLowerCase()}. Indique le « jour de suivi » dans la fiche d'un patient pour qu'il
-          apparaisse ici.
+      {entries.length === 0 ? (
+        <Empty
+          action={
+            <Button variant="primary" onClick={() => setAdding(true)}>
+              <UserPlus className="size-4" /> Ajouter un patient ce jour-là
+            </Button>
+          }
+        >
+          Aucun patient prévu ce jour-là. Le « jour de suivi » de la fiche patient fait apparaître un patient ici
+          chaque semaine (ou une semaine sur deux).
         </Empty>
       ) : (
         <ol className="space-y-4">
-          {list.map((p, i) => (
+          {entries.map((entry, i) => (
             <li
-              key={p.id}
+              key={entry.patient.id}
               draggable
-              onDragStart={() => setDragId(p.id)}
+              onDragStart={() => setDragId(entry.patient.id)}
               onDragEnd={() => setDragId(null)}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
-                const from = list.findIndex((x) => x.id === dragId);
+                const from = entries.findIndex((x) => x.patient.id === dragId);
                 if (from >= 0) void reorder(from, i);
                 setDragId(null);
               }}
-              className={cx("rounded-lg border border-rule bg-sheet", dragId === p.id && "opacity-50")}
+              className={cx("rounded-lg border border-rule bg-sheet", dragId === entry.patient.id && "opacity-50")}
             >
               <DayCard
-                patient={p}
-                forecasts={forecasts.filter((f) => f.patient_id === p.id && f.status === "a_faire")}
-                onNote={() => setNoteFor(p)}
+                entry={entry}
+                forecasts={forecasts.filter((f) => f.patient_id === entry.patient.id && f.status === "a_faire")}
+                onNote={() => setNoteFor(entry.patient)}
                 onMove={(dir) => void reorder(i, i + dir)}
-                selected={selected.includes(p.id)}
-                selectable={selected.includes(p.id) || selected.length < MAX_SIDE_BY_SIDE}
-                onToggle={() => toggle(p.id)}
+                selected={selected.includes(entry.patient.id)}
+                selectable={selected.includes(entry.patient.id) || selected.length < MAX_SIDE_BY_SIDE}
+                onToggle={() => toggle(entry.patient.id)}
                 first={i === 0}
-                last={i === list.length - 1}
+                last={i === entries.length - 1}
+                onCancel={async () => {
+                  if (entry.added) {
+                    const c = changeFor(entry.patient.id, "ajout");
+                    if (c) await remove("day_changes", c.id);
+                    toast("Séance retirée de cette journée");
+                  } else {
+                    await create("day_changes", { patient_id: entry.patient.id, day, kind: "annulation", time: null });
+                    toast(`Pas de séance pour ${entry.patient.first_name} ce jour-là`);
+                  }
+                }}
               />
             </li>
           ))}
         </ol>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {entries.length > 0 && (
+          <Button onClick={() => setAdding(true)}>
+            <UserPlus className="size-4" /> Ajouter un patient ce jour-là
+          </Button>
+        )}
+      </div>
+
+      {cancelled.length > 0 && (
+        <section className="mt-6">
+          <h2 className="mb-2 text-base text-ink-soft">Pas de séance ce jour-là</h2>
+          <ul className="divide-y divide-rule rounded-lg border border-rule bg-sheet px-4">
+            {cancelled.map((p) => (
+              <li key={p.id} className="flex items-center gap-2 py-2">
+                <span className="flex-1 text-ink-soft line-through">{fullName(p)}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    const c = changeFor(p.id, "annulation");
+                    if (c) await remove("day_changes", c.id);
+                  }}
+                >
+                  <Undo2 className="size-4" /> Rétablir la séance
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {selected.length > 0 && (
@@ -105,13 +184,68 @@ export function Journee() {
         </div>
       )}
 
-      <NoteModal patient={noteFor} onDone={() => setNoteFor(null)} />
+      <Modal open={adding} onClose={() => setAdding(false)} title={`Ajouter une séance le ${fmtDay(day)}`}>
+        {adding && (
+          <AddToDay
+            patients={patients.filter((p) => p.status !== "archive" && !entries.some((e) => e.patient.id === p.id))}
+            onAdd={async (patientId, time) => {
+              const cancel = changeFor(patientId, "annulation");
+              if (cancel) await remove("day_changes", cancel.id);
+              else await create("day_changes", { patient_id: patientId, day, kind: "ajout", time: time || null });
+              setAdding(false);
+              toast("Séance ajoutée à cette journée");
+            }}
+            onCancel={() => setAdding(false)}
+          />
+        )}
+      </Modal>
+
+      <NoteModal patient={noteFor} defaultDate={day} onDone={() => setNoteFor(null)} />
     </>
   );
 }
 
+function AddToDay({
+  patients,
+  onAdd,
+  onCancel,
+}: {
+  patients: Patient[];
+  onAdd: (patientId: string, time: string) => void;
+  onCancel: () => void;
+}) {
+  const [pid, setPid] = useState("");
+  const [time, setTime] = useState("");
+  return (
+    <div className="space-y-3">
+      <Field label="Patient">
+        <Select value={pid} onChange={(e) => setPid(e.target.value)} autoFocus>
+          <option value="">Choisir…</option>
+          {patients.map((p) => (
+            <option key={p.id} value={p.id}>
+              {fullName(p)}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Heure" hint="Facultative">
+        <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-40" />
+      </Field>
+      <p className="text-sm text-ink-soft">Pour un changement définitif, modifie plutôt le jour de suivi dans la fiche.</p>
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={onCancel}>
+          Annuler
+        </Button>
+        <Button variant="primary" disabled={!pid} onClick={() => onAdd(pid, time)}>
+          Ajouter la séance
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function DayCard({
-  patient: p,
+  entry,
   forecasts,
   onNote,
   onMove,
@@ -120,8 +254,9 @@ function DayCard({
   selected,
   selectable,
   onToggle,
+  onCancel,
 }: {
-  patient: Patient;
+  entry: DayEntry;
   forecasts: ReturnType<typeof useForecasts>;
   onNote: () => void;
   onMove: (dir: -1 | 1) => void;
@@ -130,7 +265,9 @@ function DayCard({
   selected: boolean;
   selectable: boolean;
   onToggle: () => void;
+  onCancel: () => void;
 }) {
+  const p = entry.patient;
   const [addForecast, setAddForecast] = useState(false);
   const notes = useNotes(p.id).filter((n) => n.kind === "seance");
   const lastNote = notes[0];
@@ -150,7 +287,9 @@ function DayCard({
         <Link to={`/patients/${p.id}`} className="text-lg font-bold hover:underline">
           {fullName(p)}
         </Link>
-        {p.usual_time && <Pill tone="pen">{p.usual_time}</Pill>}
+        {entry.time && <Pill tone="pen">{entry.time}</Pill>}
+        {entry.added && <Pill>Séance ajoutée</Pill>}
+        {p.frequency === "bimensuel" && !entry.added && <Pill>1 semaine sur 2</Pill>}
         {p.status === "bilan" && <Pill>Bilan</Pill>}
         <span className="text-sm text-ink-soft">
           {[p.school_class, p.usual_place ? PLACE_LABEL[p.usual_place] : null].filter(Boolean).join(", ")}
@@ -201,18 +340,23 @@ function DayCard({
               <CalendarPlus className="size-4" /> La prochaine fois
             </Button>
           )}
-          <Select
-            value={p.usual_day ?? ""}
-            onChange={(e) => void update("patients", p.id, { usual_day: e.target.value as Weekday, day_order: 99 })}
-            className="w-auto"
-            aria-label="Changer le jour de suivi"
-          >
-            {WEEKDAYS.map((d) => (
-              <option key={d} value={d}>
-                {d === p.usual_day ? `Suivi le ${d.toLowerCase()}` : `Déplacer au ${d.toLowerCase()}`}
-              </option>
-            ))}
-          </Select>
+          <Button variant="ghost" onClick={onCancel}>
+            <CalendarX className="size-4" /> {entry.added ? "Retirer de cette journée" : "Pas de séance ce jour-là"}
+          </Button>
+          {!entry.added && (
+            <Select
+              value={p.usual_day ?? ""}
+              onChange={(e) => void update("patients", p.id, { usual_day: e.target.value as Weekday, day_order: 99 })}
+              className="w-auto"
+              aria-label="Changer le jour de suivi"
+            >
+              {WEEKDAYS.map((d) => (
+                <option key={d} value={d}>
+                  {d === p.usual_day ? `Suivi le ${d.toLowerCase()}` : `Désormais le ${d.toLowerCase()}`}
+                </option>
+              ))}
+            </Select>
+          )}
         </div>
       </div>
     </div>

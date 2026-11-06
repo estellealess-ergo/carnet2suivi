@@ -39,6 +39,8 @@ export interface Patient extends SyncedRow {
   usual_time: string | null;
   usual_place: Place | null;
   frequency: "ponctuel" | "hebdomadaire" | "bimensuel" | null;
+  /** Pour un suivi une semaine sur deux : semaines paires ou impaires. */
+  week_parity?: "paire" | "impaire" | null;
   /** Ordre dans « Ma journée ». */
   day_order: number;
   /** Ordre manuel dans la liste des patients. */
@@ -66,6 +68,8 @@ export interface Note extends SyncedRow {
   content_html: string;
   /** Brouillon brut (dictée) conservé tel quel avant mise au propre. */
   raw_text: string | null;
+  /** Objectifs travaillés pendant la séance. */
+  goal_ids?: string[] | null;
 }
 
 export interface NoteVersion extends SyncedRow {
@@ -192,6 +196,26 @@ export interface PatientShare extends SyncedRow {
   patient_owner_id: string | null;
 }
 
+/** Changement ponctuel du planning : séance ajoutée ou annulée pour une date précise. */
+export interface DayChange extends SyncedRow {
+  patient_id: string;
+  day: IsoDay;
+  kind: "ajout" | "annulation";
+  time: string | null;
+}
+
+/** Document rattaché au dossier (PDF, image, courrier). Gardé sur l'appareil uniquement. */
+export interface PatientDocument extends SyncedRow {
+  patient_id: string;
+  title: string;
+  category: "bilan" | "courrier" | "ecole" | "medical" | "autre";
+  doc_date: IsoDay | null;
+  file_name: string;
+  mime: string;
+  size: number;
+  blob: Blob;
+}
+
 export interface Tables {
   patients: Patient;
   notes: Note;
@@ -205,6 +229,7 @@ export interface Tables {
   communications: Communication;
   family_reports: FamilyReport;
   patient_shares: PatientShare;
+  day_changes: DayChange;
 }
 
 export type TableName = keyof Tables;
@@ -222,6 +247,7 @@ export const TABLES: TableName[] = [
   "communications",
   "family_reports",
   "patient_shares",
+  "day_changes",
 ];
 
 /** Brouillon local d'un éditeur (jamais synchronisé) : protège la saisie en cours. */
