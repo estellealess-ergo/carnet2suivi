@@ -17,7 +17,7 @@ français, en langage simple et non technique. Voir README.md pour l'état des �
 - Notes de séance en trois rubriques courtes : Fait / Observé / À reprendre (plus de DAP),
   professionnelles, claires et homogènes, utilisables telles quelles. Pendant la séance :
   mots-clés rapides ; après : débrief guidé de trois questions, à dicter.
-- 2 à 3 notes de séance ouvertes en même temps ; patients réordonnables à la main.
+- Jusqu'à 6 notes de séance ouvertes en même temps (notes côte à côte) ; patients réordonnables à la main.
 
 ## Règles techniques
 

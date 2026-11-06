@@ -5,10 +5,10 @@ import { fullName } from "@/lib/labels";
 import { usePatients } from "@/lib/queries";
 import { Button, Input, cx } from "./ui";
 
-export const MAX_SIDE_BY_SIDE = 3;
+export const MAX_SIDE_BY_SIDE = 6;
 
 /**
- * Choix de plusieurs patients (jusqu'à trois) pour ouvrir leurs notes côte à côte.
+ * Choix de plusieurs patients (jusqu'à six) pour ouvrir leurs notes côte à côte.
  * Les patients du jour sont proposés en premier.
  */
 export function PatientMultiPicker({

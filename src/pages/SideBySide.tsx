@@ -9,7 +9,7 @@ import { fullName } from "@/lib/labels";
 import { usePatients } from "@/lib/queries";
 import type { Patient } from "@/lib/types";
 
-/** Deux ou trois notes de séance ouvertes en même temps (séances de groupe, enchaînements). */
+/** Jusqu'à six notes de séance ouvertes en même temps (séances de groupe, enchaînements). */
 export function SideBySide() {
   const patients = usePatients();
   const [params, setParams] = useSearchParams();
@@ -22,7 +22,7 @@ export function SideBySide() {
   if (columns.length === 0)
     return (
       <>
-        <PageHeader title="Notes côte à côte" subtitle="Coche jusqu'à trois patients pour ouvrir leurs notes de séance ensemble." />
+        <PageHeader title="Notes côte à côte" subtitle="Coche jusqu'à six patients pour ouvrir leurs notes de séance ensemble." />
         <div className="max-w-xl rounded-lg border border-rule bg-sheet p-4">
           <PatientMultiPicker onConfirm={setSlots} />
         </div>
@@ -40,7 +40,14 @@ export function SideBySide() {
           </Button>
         }
       />
-      <div className={cx("grid gap-4", columns.length === 2 && "xl:grid-cols-2", columns.length === 3 && "xl:grid-cols-3")}>
+      {/* Une, deux ou trois notes par ligne selon la largeur de l'écran ; au-delà, une deuxième ligne. */}
+      <div
+        className={cx(
+          "grid gap-4",
+          columns.length === 2 && "lg:grid-cols-2",
+          columns.length >= 3 && "md:grid-cols-2 xl:grid-cols-3",
+        )}
+      >
         {columns.map((id, i) => (
           <Column
             key={id}

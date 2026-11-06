@@ -36,7 +36,7 @@ Elle complète Docorga (agenda, facturation) et Indy (comptabilité), qui ne son
 - **Notes de séance** : texte mis en forme (gras, italique, souligné, couleurs, listes), dictée,
   mise au propre en trois rubriques par l'assistant, retour au texte d'origine, historique des
   versions, brouillon de secours enregistré toutes les 3 secondes.
-- **Notes côte à côte** : jusqu'à trois notes ouvertes en même temps. On coche les patients sur la
+- **Notes côte à côte** : jusqu'à six notes ouvertes en même temps. On coche les patients sur la
   page (patients du jour en premier) ou directement dans Ma journée.
 - **Prévisions** : reprises dans une note en un clic ; elles disparaissent alors de la liste et
   peuvent être remises en prévision depuis l'historique.
