@@ -22,7 +22,9 @@ import { daysSinceBackup } from "@/lib/backup";
 import { fmtDateTime } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
+import { usePeerState } from "@/lib/peer-sync";
 import { syncNow, useSyncState } from "@/lib/sync-controller";
+import { PeerIndicator, PhonePhotoPrompt } from "./Devices";
 import { QuickSearch } from "./QuickSearch";
 import { GuardProvider } from "./UnsavedGuard";
 import { Button, cx, registerToastHost } from "./ui";
@@ -79,6 +81,7 @@ export function Shell() {
               </NavLink>
             ))}
           </nav>
+          <PeerIndicator />
           <SyncIndicator />
         </aside>
         <main className="ml-16 min-w-0 px-4 py-6 pb-24 sm:px-6 lg:ml-60 lg:px-10">
@@ -87,6 +90,7 @@ export function Shell() {
             <Outlet />
           </div>
         </main>
+        <PhonePhotoPrompt />
         <UpdatePrompt />
         <Toasts />
       </div>
@@ -96,6 +100,9 @@ export function Shell() {
 
 function SyncIndicator() {
   const s = useSyncState();
+  const peer = usePeerState();
+  // Sans serveur mais appareils reliés : l'indicateur de liaison suffit.
+  if (s.status === "local" && peer.paired) return null;
   const map = {
     local: { icon: HardDrive, text: "Sur cet appareil uniquement", tone: "text-ink-soft" },
     idle: { icon: Cloud, text: s.pending ? `${s.pending} en attente` : "Synchronisé", tone: "text-done" },

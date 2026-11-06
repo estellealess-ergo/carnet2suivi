@@ -1,4 +1,5 @@
-import { Camera, ChevronLeft, ChevronRight, ImagePlus, X } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, ImagePlus, Smartphone, X } from "lucide-react";
+import { askPhonePhoto, usePeerState } from "@/lib/peer-sync";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "@/lib/db";
@@ -136,8 +137,11 @@ export function NotePhotoPicker({
   pending,
   onAdd,
   onRemovePending,
+  label,
 }: {
   noteId?: string | null;
+  /** Ce que le téléphone affiche pendant la prise de vue (ex. « Note de séance — Léo D. »). */
+  label: string;
   pending: PendingPhoto[];
   onAdd: (p: PendingPhoto[]) => void;
   onRemovePending: (id: string) => void;
@@ -146,6 +150,29 @@ export function NotePhotoPicker({
   const camera = useRef<HTMLInputElement>(null);
   const gallery = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const peer = usePeerState();
+  const phoneReady = peer.paired?.label === "téléphone" && (peer.status === "connected" || peer.status === "syncing");
+  const stopPhone = useRef<(() => void) | null>(null);
+  const [waitingPhone, setWaitingPhone] = useState(false);
+  const onAddRef = useRef(onAdd);
+  onAddRef.current = onAdd;
+  useEffect(() => () => stopPhone.current?.(), []);
+
+  async function fromPhone() {
+    try {
+      stopPhone.current = await askPhonePhoto(
+        label,
+        (blob, name) => onAddRef.current([{ id: newId(), name, blob }]),
+        () => {
+          stopPhone.current = null;
+          setWaitingPhone(false);
+        },
+      );
+      setWaitingPhone(true);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  }
   const items = useMemo<(Shown & { saved?: PatientDocument })[]>(
     () => [
       ...saved.map((d) => ({ id: d.id, blob: d.blob, title: d.title, saved: d })),
@@ -188,6 +215,27 @@ export function NotePhotoPicker({
         <Button variant="ghost" onClick={() => gallery.current?.click()} disabled={busy}>
           <ImagePlus className="size-4" /> Ajouter des images
         </Button>
+        {phoneReady && !waitingPhone && (
+          <Button variant="ghost" onClick={() => void fromPhone()}>
+            <Smartphone className="size-4" /> Prendre avec le téléphone
+          </Button>
+        )}
+        {waitingPhone && (
+          <span className="flex items-center gap-2 rounded-md bg-pen-soft px-3 py-1.5 text-sm text-pen">
+            <Smartphone className="size-4 animate-pulse" /> Prends la photo sur ton téléphone…
+            <button
+              type="button"
+              className="font-semibold underline"
+              onClick={() => {
+                stopPhone.current?.();
+                stopPhone.current = null;
+                setWaitingPhone(false);
+              }}
+            >
+              Arrêter
+            </button>
+          </span>
+        )}
         {busy && <span className="self-center text-sm text-ink-soft">Préparation…</span>}
         {input(camera, true)}
         {input(gallery, false)}

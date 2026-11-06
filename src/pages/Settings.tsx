@@ -2,6 +2,7 @@ import { Download, LogOut, RefreshCw, Smartphone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AssistantSettings } from "@/components/AssistantSettings";
 import { BackupSection } from "@/components/BackupSection";
+import { Devices } from "@/components/Devices";
 import { ImportNotes } from "@/components/ImportNotes";
 import { GmailSettings, TeamSettings } from "@/components/TeamSettings";
 import { Button, Modal, PageHeader } from "@/components/ui";
@@ -81,6 +82,8 @@ export function Settings() {
             </>
           )}
         </section>
+
+        {localOnly && <Devices />}
 
         {!localOnly && <RejectedChanges />}
         {!localOnly && <GmailSettings />}

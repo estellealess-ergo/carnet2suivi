@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router";
 import { Shell } from "./components/Shell";
 import { AuthProvider, useAuth } from "./lib/auth";
+import { initPeerSync } from "./lib/peer-sync";
 import { Exchanges } from "./pages/Exchanges";
 import { FamilySend } from "./pages/FamilySend";
 import { FamilySpace } from "./pages/FamilySpace";
@@ -53,6 +54,9 @@ function Gate() {
 
 // Demande au navigateur de ne pas effacer la base locale en cas de manque de place.
 void navigator.storage?.persist?.();
+
+// Liaison directe téléphone ↔ ordinateur, si les appareils ont été reliés.
+void initPeerSync();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -292,6 +292,7 @@ export function NoteEditor({
         pending={photos}
         onAdd={addPhotos}
         onRemovePending={(id) => setPhotos((ps) => ps.filter((p) => p.id !== id))}
+        label={label}
       />
 
       {kind === "seance" && (
