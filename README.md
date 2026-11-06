@@ -72,6 +72,7 @@ Elle complète Docorga (agenda, facturation) et Indy (comptabilité), qui ne son
   le dossier de l'appareil de la collègue.
 - **Espace famille** : un parent invité se connecte par lien e-mail et ne voit que les comptes
   rendus publiés pour son enfant.
+- **Photos dans les notes** : « Prendre une photo » (ouvre l'appareil photo sur téléphone) ou « Ajouter des images » depuis la galerie, directement dans la note en cours. Les photos sont réduites (environ 1600 px), gardées dans le brouillon dès qu'elles sont prises, puis rattachées à la note à l'enregistrement. Elles restent sur l'appareil, apparaissent sous la note et dans l'onglet Documents, sont incluses dans la sauvegarde chiffrée et ne sont jamais envoyées à l'assistant.
 - **Importer des notes** (Paramètres) : depuis un tableau Excel/CSV (une ligne par séance : patient, date, note ; patients manquants créés si on le souhaite), depuis un texte ou un document Word pour un patient (une nouvelle note à chaque ligne qui commence par une date), ou depuis l'ancienne application ErgoCabinet : voir [docs/reprise-ergocabinet.md](docs/reprise-ergocabinet.md).
 
 ### Règles de fonctionnement

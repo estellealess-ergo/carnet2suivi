@@ -12,6 +12,7 @@ export const DOC_CATEGORY: Record<PatientDocument["category"], string> = {
   courrier: "Courrier",
   ecole: "École",
   medical: "Médical",
+  photo: "Photo de séance",
   autre: "Autre",
 };
 

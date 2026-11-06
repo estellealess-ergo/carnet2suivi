@@ -56,6 +56,8 @@ export class LocalDb extends Dexie {
       day_changes: "id, patient_id, day, updated_at",
       documents: "id, patient_id, updated_at",
     });
+    // Photos rattachées aux notes de séance.
+    this.version(5).stores({ documents: "id, patient_id, note_id, updated_at" });
   }
 }
 

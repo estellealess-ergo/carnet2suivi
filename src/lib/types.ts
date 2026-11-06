@@ -207,8 +207,10 @@ export interface DayChange extends SyncedRow {
 /** Document rattaché au dossier (PDF, image, courrier). Gardé sur l'appareil uniquement. */
 export interface PatientDocument extends SyncedRow {
   patient_id: string;
+  /** Note de séance à laquelle la photo est rattachée. */
+  note_id?: string | null;
   title: string;
-  category: "bilan" | "courrier" | "ecole" | "medical" | "autre";
+  category: "bilan" | "courrier" | "ecole" | "medical" | "photo" | "autre";
   doc_date: IsoDay | null;
   file_name: string;
   mime: string;
@@ -257,6 +259,8 @@ export interface Draft {
   note_date: IsoDay | null;
   /** Mots-clés notés pendant la séance. */
   jots?: string[];
+  /** Photos prises pendant la saisie, pas encore rattachées à la note. */
+  photos?: PendingPhoto[];
   saved_at: Iso;
 }
 
@@ -267,3 +271,9 @@ export interface OutboxEntry {
   queued_at: Iso;
 }
 
+
+export interface PendingPhoto {
+  id: string;
+  name: string;
+  blob: Blob;
+}

@@ -8,7 +8,8 @@ import { htmlToText, isEmptyHtml, textToHtml } from "@/lib/html";
 import { fullName } from "@/lib/labels";
 import { useForecasts, useGoals, useNoteVersions } from "@/lib/queries";
 import { create, update } from "@/lib/repo";
-import type { Forecast, Note, NoteKind, Patient } from "@/lib/types";
+import type { Forecast, Note, NoteKind, Patient, PendingPhoto } from "@/lib/types";
+import { NotePhotoPicker, attachPhotos } from "./NotePhotos";
 import { RichEditor } from "./RichEditor";
 import { DebriefDialog, QuickCapture } from "./SessionTools";
 import { buildNoteHtml, jotsToRaw, rawToJots } from "@/lib/session-note";
@@ -57,8 +58,10 @@ export function NoteEditor({
   const initialGoalIds = useMemo(() => note?.goal_ids ?? [], [note?.goal_ids]);
   const [goalIds, setGoalIds] = useState<string[]>(initialGoalIds);
   const [transfers, setTransfers] = useState<string[]>([]);
+  /** Photos prises pendant la saisie : rattachées à la note à l'enregistrement. */
+  const [photos, setPhotos] = useState<PendingPhoto[]>([]);
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState<{ html: string; saved_at: string; note_date: string | null; jots?: string[] } | null>(null);
+  const [draft, setDraft] = useState<{ html: string; saved_at: string; note_date: string | null; jots?: string[]; photos?: PendingPhoto[] } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const savedRef = useRef(false);
   const releaseRef = useRef<(() => void) | null>(null);
@@ -67,13 +70,14 @@ export function NoteEditor({
     html !== initialHtml ||
     day !== initialDate ||
     transfers.length > 0 ||
+    photos.length > 0 ||
     jots.join("\n") !== initialJots.join("\n") ||
     goalIds.join() !== initialGoalIds.join();
 
   // Brouillon de secours : proposé à la réouverture s'il diffère de la note.
   useEffect(() => {
     void db.drafts.get(draftKey).then((d) => {
-      if (d && ((d.html !== initialHtml && !isEmptyHtml(d.html)) || (d.jots?.length ?? 0) > initialJots.length)) setDraft(d);
+      if (d && ((d.html !== initialHtml && !isEmptyHtml(d.html)) || (d.jots?.length ?? 0) > initialJots.length || (d.photos?.length ?? 0) > 0)) setDraft(d);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftKey, initialHtml]);
@@ -82,10 +86,18 @@ export function NoteEditor({
     if (!dirty) return;
     const t = setTimeout(() => {
       if (savedRef.current) return;
-      void db.drafts.put({ key: draftKey, html, note_date: day || null, jots, saved_at: new Date().toISOString() });
+      void db.drafts.put({ key: draftKey, html, note_date: day || null, jots, photos, saved_at: new Date().toISOString() });
     }, 3000);
     return () => clearTimeout(t);
-  }, [html, day, jots, dirty, draftKey]);
+  }, [html, day, jots, photos, dirty, draftKey]);
+
+  /** Une photo est gardée tout de suite dans le brouillon : sur téléphone, l'appareil photo peut recharger la page. */
+  function addPhotos(added: PendingPhoto[]) {
+    const next = [...photos, ...added];
+    setPhotos(next);
+    void db.drafts.put({ key: draftKey, html, note_date: day || null, jots, photos: next, saved_at: new Date().toISOString() });
+    toast(added.length > 1 ? `${added.length} photos ajoutées` : "Photo ajoutée");
+  }
 
   const forecasts = useForecasts(patient.id).filter((f) => f.status === "a_faire" && !transfers.includes(f.id));
 
@@ -94,18 +106,23 @@ export function NoteEditor({
       toast("Choisis la date de la note avant d'enregistrer.", "error");
       return false;
     }
-    if (isEmptyHtml(html) && jots.length === 0) {
+    if (isEmptyHtml(html) && jots.length === 0 && photos.length === 0) {
       toast("La note est vide.", "error");
       return false;
     }
     const raw = jotsToRaw(jots);
     // Des mots-clés sans note rédigée : ils deviennent le contenu, pour ne rien perdre.
-    const content = isEmptyHtml(html) ? buildNoteHtml({ fait: "", observe: jots.join(" ; "), reprendre: "" }) : html;
+    const content = !isEmptyHtml(html)
+      ? html
+      : jots.length
+        ? buildNoteHtml({ fait: "", observe: jots.join(" ; "), reprendre: "" })
+        : `<p>Photo${photos.length > 1 ? "s" : ""} de la séance.</p>`;
     try {
       const saved = note
         ? (await update("notes", note.id, { content_html: content, note_date: day, raw_text: raw, goal_ids: goalIds }), note)
         : await create("notes", { patient_id: patient.id, kind, note_date: day, content_html: content, raw_text: raw, goal_ids: goalIds });
       for (const id of transfers) await update("forecasts", id, { status: "transferee", note_id: saved.id });
+      if (photos.length) await attachPhotos(photos, patient.id, saved.id, day);
       savedRef.current = true;
       releaseRef.current?.();
       await db.drafts.delete(draftKey);
@@ -116,7 +133,7 @@ export function NoteEditor({
       toast((e as Error).message, "error");
       return false;
     }
-  }, [day, html, jots, goalIds, note, patient.id, kind, transfers, draftKey, onDone]);
+  }, [day, html, jots, goalIds, photos, note, patient.id, kind, transfers, draftKey, onDone]);
 
   const label = `${kind === "seance" ? "Note de séance" : "Note"} — ${fullName(patient)}`;
   const guard = useUnsavedGuard({ dirty, label, onSave: save });
@@ -166,6 +183,7 @@ export function NoteEditor({
               setHtml(draft.html);
               if (draft.note_date) setDay(draft.note_date);
               if (draft.jots) setJots(draft.jots);
+              if (draft.photos?.length) setPhotos(draft.photos);
               setDraft(null);
             }}
           >
@@ -268,6 +286,13 @@ export function NoteEditor({
           </ul>
         </div>
       )}
+
+      <NotePhotoPicker
+        noteId={note?.id}
+        pending={photos}
+        onAdd={addPhotos}
+        onRemovePending={(id) => setPhotos((ps) => ps.filter((p) => p.id !== id))}
+      />
 
       {kind === "seance" && (
         <div className="mb-3 space-y-3">

@@ -1,3 +1,4 @@
+import { NotePhotoStrip } from "@/components/NotePhotos";
 import { ArrowLeft, FileDown, NotebookPen, Pencil, Plus, Search, StickyNote, Trash2, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
@@ -224,6 +225,7 @@ function NoteList({ notes, onEdit }: { notes: Note[]; onEdit: (n: Note) => void 
               </span>
             </div>
             <div className="prose-note sheet-margin py-3 pr-4 pl-12" dangerouslySetInnerHTML={{ __html: sanitize(n.content_html) }} />
+            <NotePhotoStrip noteId={n.id} />
             {(n.goal_ids?.length ?? 0) > 0 && (
               <div className="flex flex-wrap gap-1.5 border-t border-rule px-4 py-2">
                 {n.goal_ids!.filter((id) => goalTitle.has(id)).map((id) => (
