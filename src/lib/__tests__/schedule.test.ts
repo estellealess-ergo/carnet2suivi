@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isoWeek, patientsForDay, weekParity } from "../schedule";
+import { groupsOf, isoWeek, patientsForDay, weekParity } from "../schedule";
 import type { DayChange, Patient } from "../types";
 
 const P = (id: string, extra: Partial<Patient> = {}) =>
@@ -30,5 +30,22 @@ describe("planning par date", () => {
 
   it("ignore les patients archivés ou en pause", () => {
     expect(patientsForDay([P("x", { status: "pause" })], [], "2026-11-05").entries).toEqual([]);
+  });
+});
+
+
+describe("séances de groupe", () => {
+  it("regroupe les patients prévus à la même heure", () => {
+    const p = (id: string) => ({ id, first_name: id }) as never;
+    const g = groupsOf([
+      { patient: p("a"), time: "10:00", added: false },
+      { patient: p("b"), time: "09:00", added: false },
+      { patient: p("c"), time: "10:00:00", added: true },
+      { patient: p("d"), time: null, added: false },
+      { patient: p("e"), time: null, added: false },
+    ]);
+    expect(g).toHaveLength(1);
+    expect(g[0]!.time).toBe("10:00");
+    expect(g[0]!.entries.map((e) => e.patient.id)).toEqual(["a", "c"]);
   });
 });

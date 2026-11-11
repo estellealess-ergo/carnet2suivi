@@ -210,7 +210,7 @@ export interface PatientDocument extends SyncedRow {
   /** Note de séance à laquelle la photo est rattachée. */
   note_id?: string | null;
   title: string;
-  category: "bilan" | "courrier" | "ecole" | "medical" | "photo" | "autre";
+  category: "bilan" | "courrier" | "ecole" | "medical" | "photo" | "compte_rendu" | "autre";
   doc_date: IsoDay | null;
   file_name: string;
   mime: string;
@@ -232,6 +232,7 @@ export interface Tables {
   family_reports: FamilyReport;
   patient_shares: PatientShare;
   day_changes: DayChange;
+  activities: Activity;
 }
 
 export type TableName = keyof Tables;
@@ -250,7 +251,19 @@ export const TABLES: TableName[] = [
   "family_reports",
   "patient_shares",
   "day_changes",
+  "activities",
 ];
+
+/**
+ * Activité enregistrée, à ajouter en un clic dans une note de séance.
+ * Le modèle contient des cases à remplir entre crochets : « TypingClub, leçon [leçon] : [vitesse] mpm ».
+ */
+export interface Activity extends SyncedRow {
+  title: string;
+  template: string;
+  rubric: "fait" | "observe" | "reprendre";
+  sort_order: number;
+}
 
 /** Brouillon local d'un éditeur (jamais synchronisé) : protège la saisie en cours. */
 export interface Draft {

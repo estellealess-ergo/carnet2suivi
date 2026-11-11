@@ -3,7 +3,7 @@ import { PROMPTS } from "./prompts";
 import { buildPseudonymizer, type Person } from "./pseudonymize";
 import { supabase } from "./supabase";
 
-export type AssistantTask = "note" | "smart" | "famille" | "echange";
+export type AssistantTask = "note" | "smart" | "famille" | "echange" | "cr";
 
 /**
  * L'assistant est disponible :

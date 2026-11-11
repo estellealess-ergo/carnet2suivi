@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { textToHtml } from "../html";
-import { buildNoteHtml, jotsToRaw, keywordSuggestions, rawToJots } from "../session-note";
+import { buildNoteHtml, fillTemplate, insertInRubric, jotsToRaw, keywordSuggestions, rawToJots, templateFields } from "../session-note";
 
 describe("note de séance en trois rubriques", () => {
   it("compose la note à partir du débrief, sans rubrique vide", () => {
@@ -43,5 +43,21 @@ describe("message aux familles", () => {
     expect(whatsappNumber("+262 692 12 34 56")).toBe("262692123456");
     expect(whatsappNumber("12")).toBeNull();
     expect(whatsappLink("06.12.34.56.78", "Bonjour !")).toBe("https://wa.me/33612345678?text=Bonjour%20!");
+  });
+});
+
+describe("activités enregistrées", () => {
+  const t = "Entraînement TypingClub, leçon [leçon] (lettres : [lettres]) : [vitesse] mpm, [précision] % de précision réelle";
+  it("repère et remplit les cases", () => {
+    expect(templateFields(t)).toEqual(["leçon", "lettres", "vitesse", "précision"]);
+    expect(fillTemplate(t, { leçon: "12", lettres: "q, s", vitesse: "18", précision: "92" })).toBe(
+      "Entraînement TypingClub, leçon 12 (lettres : q, s) : 18 mpm, 92 % de précision réelle",
+    );
+  });
+  it("ajoute dans la bonne rubrique", () => {
+    expect(insertInRubric("<p></p>", "fait", "A")).toBe("<p><strong>Fait :</strong> A</p>");
+    const n = "<p><strong>Fait :</strong> A</p><p><strong>À reprendre :</strong> C</p>";
+    expect(insertInRubric(n, "fait", "B")).toBe("<p><strong>Fait :</strong> A ; B</p><p><strong>À reprendre :</strong> C</p>");
+    expect(insertInRubric(n, "observe", "O")).toBe("<p><strong>Fait :</strong> A</p><p><strong>Observé :</strong> O</p><p><strong>À reprendre :</strong> C</p>");
   });
 });

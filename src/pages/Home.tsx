@@ -4,7 +4,8 @@ import { PageHeader, Pill } from "@/components/ui";
 import { useLiveQuery } from "dexie-react-hooks";
 import { bucketByHorizon, fmtLongDay, localDay, relativeDay } from "@/lib/dates";
 import { db } from "@/lib/db";
-import { patientsForDay } from "@/lib/schedule";
+import { groupsOf, patientsForDay } from "@/lib/schedule";
+import { GroupBanners } from "./Journee";
 import { fullName } from "@/lib/labels";
 import { useForecasts, usePatients, useTasks } from "@/lib/queries";
 import type { Forecast, Patient, Task } from "@/lib/types";
@@ -46,6 +47,8 @@ export function Home() {
           </Link>
         }
       />
+
+      <GroupBanners groups={groupsOf(todays)} day={today} />
 
       {(overdue.length > 0 || undatedUrgent.length > 0) && (
         <section className="mb-8 rounded-lg border border-late/30 bg-late-soft/50 p-4" aria-labelledby="late">

@@ -12,7 +12,8 @@ import type { Forecast, Note, NoteKind, Patient, PendingPhoto } from "@/lib/type
 import { NotePhotoPicker, attachPhotos } from "./NotePhotos";
 import { RichEditor } from "./RichEditor";
 import { DebriefDialog, QuickCapture } from "./SessionTools";
-import { buildNoteHtml, jotsToRaw, rawToJots } from "@/lib/session-note";
+import { buildNoteHtml, insertInRubric, jotsToRaw, rawToJots } from "@/lib/session-note";
+import { ActivityPicker } from "./ActivityPicker";
 import { Button, Field, Input, Modal, cx, toast } from "./ui";
 import { useUnsavedGuard } from "./UnsavedGuard";
 
@@ -297,6 +298,7 @@ export function NoteEditor({
 
       {kind === "seance" && (
         <div className="mb-3 space-y-3">
+          <ActivityPicker patientId={patient.id} onInsert={(r, t) => setHtml((h) => insertInRubric(h, r, t))} />
           <QuickCapture jots={jots} onChange={setJots} />
           {goals.length > 0 && (
             <div>

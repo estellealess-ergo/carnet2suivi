@@ -15,9 +15,11 @@ export function SideBySide() {
   const [params, setParams] = useSearchParams();
   const [picking, setPicking] = useState(false);
   const columns = (params.get("p") ?? "").split(",").filter((id) => id && id !== "-");
+  // Date de la séance (ex. groupe ouvert depuis une autre journée) ; sinon la date du jour.
+  const date = params.get("date") ?? undefined;
 
   const setSlots = (next: string[]) =>
-    setParams(next.length ? { p: next.slice(0, MAX_SIDE_BY_SIDE).join(",") } : {}, { replace: true });
+    setParams(next.length ? { p: next.slice(0, MAX_SIDE_BY_SIDE).join(","), ...(date ? { date } : {}) } : {}, { replace: true });
 
   if (columns.length === 0)
     return (
@@ -53,6 +55,7 @@ export function SideBySide() {
             key={id}
             patient={patients.find((p) => p.id === id) ?? null}
             onClose={() => setSlots(columns.filter((_, j) => j !== i))}
+            defaultDate={date}
           />
         ))}
       </div>
@@ -72,7 +75,7 @@ export function SideBySide() {
   );
 }
 
-function Column({ patient, onClose }: { patient: Patient | null; onClose: () => void }) {
+function Column({ patient, onClose, defaultDate }: { patient: Patient | null; onClose: () => void; defaultDate?: string }) {
   const closeRef = useRef<(() => void) | null>(null);
   if (!patient) return null;
   return (
@@ -86,7 +89,7 @@ function Column({ patient, onClose }: { patient: Patient | null; onClose: () => 
       <div className="mb-3">
         <PinnedInfo patient={patient} editable={false} />
       </div>
-      <NoteEditor patient={patient} onDone={onClose} closeRef={closeRef} compact />
+      <NoteEditor patient={patient} onDone={onClose} closeRef={closeRef} compact defaultDate={defaultDate} />
     </section>
   );
 }

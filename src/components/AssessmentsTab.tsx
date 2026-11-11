@@ -1,4 +1,5 @@
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { FileText, Pencil, Plus, Trash2 } from "lucide-react";
+import { Link } from "react-router";
 import { useRef, useState, type MutableRefObject } from "react";
 import { fmtDay } from "@/lib/dates";
 import { useAssessments } from "@/lib/queries";
@@ -39,7 +40,13 @@ export function AssessmentsTab({ patient }: { patient: Patient }) {
             <li key={a.id} className="rounded-lg border border-rule bg-sheet">
               <div className="flex items-center gap-2 border-b border-rule px-4 py-2">
                 <h3>Bilan du {fmtDay(a.assessment_date)}</h3>
-                <span className="ml-auto flex gap-1">
+                <span className="ml-auto flex flex-wrap gap-1">
+                  <Link
+                    to={`?onglet=comptes-rendus&bilan=${a.id}`}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-rule px-2.5 text-sm font-semibold hover:border-pen"
+                  >
+                    <FileText className="size-4" /> Compte rendu
+                  </Link>
                   <Button size="sm" variant="ghost" onClick={() => setEditing(a)}>
                     <Pencil className="size-4" /> Modifier
                   </Button>

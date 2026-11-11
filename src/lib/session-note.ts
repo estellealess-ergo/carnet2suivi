@@ -101,3 +101,42 @@ export function whatsappLink(phone: string, text: string): string | null {
   const n = whatsappNumber(phone);
   return n ? `https://wa.me/${n}?text=${encodeURIComponent(text)}` : null;
 }
+
+/* ------------------------------------------------------------------ activités enregistrées */
+
+/** Cases à remplir d'un modèle d'activité : « leçon [leçon] : [vitesse] mpm » → ["leçon", "vitesse"]. */
+export function templateFields(template: string): string[] {
+  return [...new Set([...template.matchAll(/\[([^\]]+)\]/g)].map((m) => m[1]!.trim()))];
+}
+
+/** Remplit le modèle ; une case laissée vide devient « — ». */
+export function fillTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(/\[([^\]]+)\]/g, (_, k: string) => values[k.trim()]?.trim() || "—").replace(/\s+/g, " ").trim();
+}
+
+/** Ajoute une ligne dans la bonne rubrique de la note (la crée au bon endroit si besoin). */
+export function insertInRubric(html: string, rubric: RubricKey, text: string): string {
+  const doc = new DOMParser().parseFromString(html || "", "text/html");
+  const body = doc.body;
+  const title = RUBRICS.find((r) => r.key === rubric)!.title;
+  const order = RUBRICS.map((r) => r.title);
+  const startsWith = (el: Element, t: string) => new RegExp(`^${t}\\s*:`, "i").test(el.textContent?.trim() ?? "");
+  const paras = [...body.querySelectorAll("p")];
+  const target = paras.find((p) => startsWith(p, title));
+  if (target) {
+    const content = target.textContent!.replace(new RegExp(`^${title}\\s*:`, "i"), "").trim();
+    target.append(doc.createTextNode(content ? ` ; ${text}` : ` ${text}`));
+    return body.innerHTML;
+  }
+  const p = doc.createElement("p");
+  p.innerHTML = `<strong>${title} :</strong> ${esc(text)}`;
+  // Avant la première rubrique qui vient après celle-ci, sinon à la fin (ou au début pour « Fait »).
+  const after = order.slice(order.indexOf(title) + 1);
+  const next = paras.find((x) => after.some((t) => startsWith(x, t)));
+  if (next) next.before(p);
+  else if (rubric === "fait" && body.firstChild && !paras.some((x) => order.some((t) => startsWith(x, t)))) body.prepend(p);
+  else body.append(p);
+  // Retire un paragraphe vide laissé par l'éditeur.
+  [...body.querySelectorAll("p")].forEach((x) => !x.textContent?.trim() && x !== p && x.remove());
+  return body.innerHTML;
+}

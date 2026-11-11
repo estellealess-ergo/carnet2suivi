@@ -10,6 +10,7 @@ import {
   NotebookPen,
   Undo2,
   UserPlus,
+  Users,
 } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useMemo, useState } from "react";
@@ -23,7 +24,7 @@ import { db } from "@/lib/db";
 import { PLACE_LABEL, fullName } from "@/lib/labels";
 import { useForecasts, useNotes, usePatients } from "@/lib/queries";
 import { create, remove, update } from "@/lib/repo";
-import { patientsForDay, weekParity, type DayEntry } from "@/lib/schedule";
+import { groupNotesUrl, groupsOf, patientsForDay, weekParity, type DayEntry, type DayGroup } from "@/lib/schedule";
 import type { Patient, Weekday } from "@/lib/types";
 
 /**
@@ -40,6 +41,8 @@ export function Journee() {
   const forecasts = useForecasts();
   const changes = useLiveQuery(() => db.day_changes.where("day").equals(day).toArray(), [day]) ?? [];
   const [noteFor, setNoteFor] = useState<Patient | null>(null);
+  /** Note demandée pour un patient d'une séance de groupe : on propose les notes du groupe. */
+  const [groupAsk, setGroupAsk] = useState<{ group: DayGroup; patient: Patient } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
@@ -48,6 +51,13 @@ export function Journee() {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : s.length >= MAX_SIDE_BY_SIDE ? s : [...s, id]));
 
   const { entries, cancelled } = useMemo(() => patientsForDay(patients, changes, day), [patients, changes, day]);
+  const groups = useMemo(() => groupsOf(entries), [entries]);
+  const groupOf = (id: string) => groups.find((g) => g.entries.some((e) => e.patient.id === id));
+  const openNote = (p: Patient) => {
+    const g = groupOf(p.id);
+    if (g) setGroupAsk({ group: g, patient: p });
+    else setNoteFor(p);
+  };
 
   async function reorder(from: number, to: number) {
     if (from === to || to < 0 || to >= entries.length) return;
@@ -84,6 +94,8 @@ export function Journee() {
         }
       />
 
+      {groups.length > 0 && <GroupBanners groups={groups} day={day} />}
+
       {entries.length === 0 ? (
         <Empty
           action={
@@ -115,7 +127,8 @@ export function Journee() {
               <DayCard
                 entry={entry}
                 forecasts={forecasts.filter((f) => f.patient_id === entry.patient.id && f.status === "a_faire")}
-                onNote={() => setNoteFor(entry.patient)}
+                onNote={() => openNote(entry.patient)}
+                inGroup={Boolean(groupOf(entry.patient.id))}
                 onMove={(dir) => void reorder(i, i + dir)}
                 selected={selected.includes(entry.patient.id)}
                 selectable={selected.includes(entry.patient.id) || selected.length < MAX_SIDE_BY_SIDE}
@@ -201,6 +214,36 @@ export function Journee() {
       </Modal>
 
       <NoteModal patient={noteFor} defaultDate={day} onDone={() => setNoteFor(null)} />
+
+      <Modal open={groupAsk !== null} onClose={() => setGroupAsk(null)} title="Séance de groupe">
+        {groupAsk && (
+          <div className="space-y-4">
+            <p>
+              {groupAsk.patient.first_name} est en groupe à {groupAsk.group.time} avec{" "}
+              {groupAsk.group.entries
+                .filter((e) => e.patient.id !== groupAsk.patient.id)
+                .map((e) => e.patient.first_name)
+                .join(", ")
+                .replace(/, ([^,]*)$/, " et $1")}
+              .
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setNoteFor(groupAsk.patient);
+                  setGroupAsk(null);
+                }}
+              >
+                Seulement la note de {groupAsk.patient.first_name}
+              </Button>
+              <Button variant="primary" onClick={() => navigate(groupNotesUrl(groupAsk.group, day, MAX_SIDE_BY_SIDE))}>
+                <Columns3 className="size-4" /> Notes du groupe côte à côte
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </>
   );
 }
@@ -255,6 +298,7 @@ function DayCard({
   selectable,
   onToggle,
   onCancel,
+  inGroup,
 }: {
   entry: DayEntry;
   forecasts: ReturnType<typeof useForecasts>;
@@ -266,6 +310,7 @@ function DayCard({
   selectable: boolean;
   onToggle: () => void;
   onCancel: () => void;
+  inGroup: boolean;
 }) {
   const p = entry.patient;
   const [addForecast, setAddForecast] = useState(false);
@@ -287,7 +332,8 @@ function DayCard({
         <Link to={`/patients/${p.id}`} className="text-lg font-bold hover:underline">
           {fullName(p)}
         </Link>
-        {entry.time && <Pill tone="pen">{entry.time}</Pill>}
+        {entry.time && <Pill tone="pen">{entry.time.slice(0, 5)}</Pill>}
+        {inGroup && <Pill tone="pen">Groupe</Pill>}
         {entry.added && <Pill>Séance ajoutée</Pill>}
         {p.frequency === "bimensuel" && !entry.added && <Pill>1 semaine sur 2</Pill>}
         {p.status === "bilan" && <Pill>Bilan</Pill>}
@@ -359,6 +405,27 @@ function DayCard({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Les séances de groupe du jour : un clic ouvre toutes leurs notes côte à côte. */
+export function GroupBanners({ groups, day }: { groups: DayGroup[]; day: string }) {
+  const navigate = useNavigate();
+  return (
+    <div className="mb-4 space-y-2">
+      {groups.map((g) => (
+        <div key={g.time} className="flex flex-wrap items-center gap-3 rounded-lg border border-pen/30 bg-pen-soft px-4 py-3">
+          <Users className="size-5 text-pen" aria-hidden />
+          <p className="min-w-0 flex-1">
+            <strong>Groupe de {g.time}</strong> : {g.entries.map((e) => e.patient.first_name).join(", ")}
+            {g.entries.length > MAX_SIDE_BY_SIDE && ` (les ${MAX_SIDE_BY_SIDE} premiers seront ouverts)`}
+          </p>
+          <Button variant="primary" onClick={() => navigate(groupNotesUrl(g, day, MAX_SIDE_BY_SIDE))}>
+            <Columns3 className="size-4" /> Notes du groupe côte à côte
+          </Button>
+        </div>
+      ))}
     </div>
   );
 }

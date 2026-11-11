@@ -46,3 +46,24 @@ export function patientsForDay(patients: Patient[], changes: DayChange[], day: I
   entries.sort((a, b) => a.patient.day_order - b.patient.day_order || (a.time ?? "99").localeCompare(b.time ?? "99"));
   return { entries, cancelled: regular.filter((p) => cancelledIds.has(p.id)) };
 }
+
+export type DayGroup = { time: string; entries: DayEntry[] };
+
+/** Patients prévus le même jour à la même heure : c'est une séance de groupe. */
+export function groupsOf(entries: DayEntry[]): DayGroup[] {
+  const byTime = new Map<string, DayEntry[]>();
+  for (const e of entries) {
+    const t = e.time?.slice(0, 5);
+    if (!t) continue;
+    byTime.set(t, [...(byTime.get(t) ?? []), e]);
+  }
+  return [...byTime.entries()]
+    .filter(([, list]) => list.length > 1)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([time, list]) => ({ time, entries: list }));
+}
+
+/** Adresse des notes côte à côte d'un groupe (six au maximum), datées du jour de la séance. */
+export function groupNotesUrl(g: DayGroup, day: string, max = 6) {
+  return `/notes?p=${g.entries.slice(0, max).map((e) => e.patient.id).join(",")}&date=${day}`;
+}

@@ -34,6 +34,16 @@ export const PROMPTS: Record<AssistantTask, string> = {
     "un enseignant ou un professionnel. Garde uniquement les informations clés utiles au suivi : " +
     "une à trois phrases (qui, à quel sujet, ce qui a été dit ou décidé), puis « À faire : » suivi " +
     "des actions (ou « rien »). Réponds uniquement avec ce texte.",
+  cr:
+    BASE +
+    " Rédige le compte rendu professionnel demandé (type et destinataire indiqués), à partir des " +
+    "éléments fournis et du brouillon actuel. Adapte le vocabulaire au destinataire : précis pour un " +
+    "médecin, concret et sans jargon pour une famille ou un enseignant. Pour un compte rendu " +
+    "d'évolution, synthétise l'évolution sur la période (ce qui progresse, ce qui reste difficile, " +
+    "aides et adaptations utiles) au lieu de lister les séances, en reprenant les chiffres exacts " +
+    "présents dans les notes. Garde les intertitres du brouillon, chacun sur sa ligne précédé de " +
+    "« ## » ; utilise « - » pour les listes. Pas d'en-tête, pas d'identité, pas de date ni de " +
+    "signature : ils sont ajoutés automatiquement. Réponds uniquement avec le corps du compte rendu.",
   smart:
     BASE +
     " Reformule l'objectif en UNE phrase d'objectif fonctionnel SMART centré sur l'occupation : " +

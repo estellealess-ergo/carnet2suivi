@@ -2,6 +2,8 @@ import { Download, LogOut, RefreshCw, Smartphone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AssistantSettings } from "@/components/AssistantSettings";
 import { BackupSection } from "@/components/BackupSection";
+import { ActivityLibrary } from "@/components/ActivityPicker";
+import { CabinetSettings } from "@/components/CabinetSettings";
 import { Devices } from "@/components/Devices";
 import { ImportNotes } from "@/components/ImportNotes";
 import { GmailSettings, TeamSettings } from "@/components/TeamSettings";
@@ -108,6 +110,13 @@ export function Settings() {
             </p>
           )}
         </section>
+
+        <section id="activites" className={section}>
+          <h2 className="mb-2">Mes activités</h2>
+          <ActivityLibrary />
+        </section>
+
+        <CabinetSettings />
 
         <ImportNotes />
 

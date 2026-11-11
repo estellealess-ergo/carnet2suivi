@@ -13,6 +13,7 @@ export const DOC_CATEGORY: Record<PatientDocument["category"], string> = {
   ecole: "École",
   medical: "Médical",
   photo: "Photo de séance",
+  compte_rendu: "Compte rendu",
   autre: "Autre",
 };
 
@@ -29,7 +30,8 @@ export function DocumentsTab({ patient }: { patient: Patient }) {
     useLiveQuery(
       async () =>
         (await db.documents.where("patient_id").equals(patient.id).toArray())
-          .filter((d) => !d.deleted_at)
+          // Les comptes rendus ont leur propre onglet.
+          .filter((d) => !d.deleted_at && d.category !== "compte_rendu")
           .sort((a, b) => (b.doc_date ?? b.created_at).localeCompare(a.doc_date ?? a.created_at)),
       [patient.id],
     ) ?? [];
@@ -142,7 +144,7 @@ export function DocumentsTab({ patient }: { patient: Patient }) {
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Type">
               <Select value={category} onChange={(e) => setCategory(e.target.value as PatientDocument["category"])}>
-                {Object.entries(DOC_CATEGORY).map(([k, l]) => (
+                {Object.entries(DOC_CATEGORY).filter(([k]) => k !== "compte_rendu").map(([k, l]) => (
                   <option key={k} value={k}>
                     {l}
                   </option>
