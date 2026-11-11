@@ -1,4 +1,4 @@
-import { FileSpreadsheet, FileText, FileUp } from "lucide-react";
+import { FileSpreadsheet, FileText } from "lucide-react";
 import { useRef, useState } from "react";
 import { fmtDay } from "@/lib/dates";
 import { textToHtml } from "@/lib/html";
@@ -7,12 +7,11 @@ import { fullName } from "@/lib/labels";
 import { usePatients } from "@/lib/queries";
 import { create } from "@/lib/repo";
 import type { IsoDay, Patient } from "@/lib/types";
-import { ImportErgoCabinet } from "./ImportErgoCabinet";
 import { Button, Field, Input, Select, Textarea, cx, toast } from "./ui";
 
-type Mode = "tableau" | "texte" | "ergocabinet";
+type Mode = "tableau" | "texte";
 
-/** Importation de notes existantes : tableau, texte / Word, ou ancienne application ErgoCabinet. */
+/** Importation de notes existantes : tableau Excel/CSV, ou texte / document Word. */
 export function ImportNotes() {
   const [mode, setMode] = useState<Mode>("tableau");
   const tab = (m: Mode, label: string, Icon: typeof FileText) => (
@@ -38,11 +37,9 @@ export function ImportNotes() {
       <div className="mb-4 flex flex-wrap gap-2" role="tablist">
         {tab("tableau", "Un tableau (Excel, CSV)", FileSpreadsheet)}
         {tab("texte", "Un texte ou un document Word", FileText)}
-        {tab("ergocabinet", "L'ancienne application ErgoCabinet", FileUp)}
       </div>
       {mode === "tableau" && <FromTable />}
       {mode === "texte" && <FromText />}
-      {mode === "ergocabinet" && <ImportErgoCabinet embedded />}
     </section>
   );
 }
