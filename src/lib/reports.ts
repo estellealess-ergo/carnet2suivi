@@ -3,13 +3,14 @@
  * Ils sont gardés dans la table locale `documents` (catégorie « compte_rendu ») : pas de nouvelle
  * table, inclus dans la sauvegarde chiffrée et transmis par la liaison téléphone ↔ ordinateur.
  */
-import { AlignmentType, BorderStyle, Document, Footer, Packer, Paragraph, TextRun } from "docx";
+import { AlignmentType, BorderStyle, Document, Footer, ImageRun, Packer, Paragraph, TextRun } from "docx";
+import { activityHistory, chartSvgString, fieldUnit, numericFields, progressSentence, seriesOf, svgToPng } from "./activity-progress";
 import { ageFrom, fmtDay, parseDay } from "./dates";
 import { db, getMeta } from "./db";
 import { htmlToParagraphs } from "./export-docx";
 import { FREQUENCY_LABEL, GOAL_STATUS_LABEL, fullName } from "./labels";
 import { newId, stamp } from "./repo";
-import type { Assessment, Goal, IsoDay, Note, Patient, PatientDocument } from "./types";
+import type { Activity, Assessment, Goal, IsoDay, Note, Patient, PatientDocument } from "./types";
 
 export type CrKind = "bilan" | "evolution" | "courrier";
 
@@ -30,6 +31,8 @@ export interface CrData {
   period_to: IsoDay | null;
   assessment_id: string | null;
   html: string;
+  /** Compte rendu d'évolution : ajouter les courbes de progression des activités dans le Word. */
+  charts?: boolean;
 }
 
 export interface Report extends CrData {
@@ -106,7 +109,13 @@ export function inPeriod(n: Note, from: IsoDay | null, to: IsoDay | null) {
   return n.kind === "seance" && !n.deleted_at && (!from || n.note_date >= from) && (!to || n.note_date <= to);
 }
 
-export function crEvolution(p: Patient, notes: Note[], goals: Goal[], from: IsoDay | null, to: IsoDay | null): CrData {
+/** Mesures des activités enregistrées sur la période, pour le compte rendu. */
+export function periodProgress(activities: Activity[], notes: Note[], from: IsoDay | null, to: IsoDay | null) {
+  const inP = notes.filter((n) => inPeriod(n, from, to));
+  return activities.map((a) => ({ a, h: activityHistory(a, inP) })).filter((x) => x.h.length > 0);
+}
+
+export function crEvolution(p: Patient, notes: Note[], goals: Goal[], from: IsoDay | null, to: IsoDay | null, activities: Activity[] = []): CrData {
   const sessions = notes.filter((n) => inPeriod(n, from, to)).sort((a, b) => a.note_date.localeCompare(b.note_date));
   const freq = p.frequency ? FREQUENCY_LABEL[p.frequency as keyof typeof FREQUENCY_LABEL]?.toLowerCase() : null;
   const cadre =
@@ -130,14 +139,18 @@ export function crEvolution(p: Patient, notes: Note[], goals: Goal[], from: IsoD
     .map((x) => `<li><em>${fmtDay(x.d)}</em> : ${esc(x.o)}</li>`)
     .join("");
   const last = [...sessions].reverse().map((n) => noteParts(n.content_html).reprendre).find(Boolean);
+  const prog = periodProgress(activities, notes, from, to);
+  const progItems = prog.map(({ a, h }) => `<li>${esc(progressSentence(a, h))}</li>`).join("");
   const html = [
     section("Motif de la prise en charge", para(p.consultation_reason)),
     section("Cadre du suivi", para(cadre)),
     goalItems ? section("Objectifs travaillés", `<ul>${goalItems}</ul>`) : "",
     section("Évolution observée", obs ? `<p><em>Observations des séances, à résumer :</em></p><ul>${obs}</ul>` : "<p></p>"),
+    progItems ? section("Progression des activités", `<ul>${progItems}</ul>`) : "",
     section("Perspectives", para(last)),
   ].join("");
-  return { kind: "evolution", title: CR_KIND_LABEL.evolution + " en ergothérapie", recipient: "", cr_date: null, period_from: from, period_to: to, assessment_id: null, html };
+  const charts = prog.some(({ a, h }) => numericFields(a, h).length > 0);
+  return { kind: "evolution", title: CR_KIND_LABEL.evolution + " en ergothérapie", recipient: "", cr_date: null, period_from: from, period_to: to, assessment_id: null, html, charts };
 }
 
 export function crLetter(): CrData {
@@ -252,7 +265,23 @@ export async function saveReport(patientId: string, cr: CrData, id?: string): Pr
 
 /* ------------------------------------------------------------------ Word */
 
-export async function buildReportDocx(cr: CrData, p: Patient, cab: Cabinet): Promise<Blob> {
+export type ChartImage = { title: string; data: Uint8Array; width: number; height: number };
+
+/** Images des courbes (navigateur) pour un compte rendu d'évolution. */
+export async function crCharts(cr: CrData, activities: Activity[], notes: Note[]): Promise<ChartImage[]> {
+  if (cr.kind !== "evolution" || !cr.charts) return [];
+  const out: ChartImage[] = [];
+  for (const { a, h } of periodProgress(activities, notes, cr.period_from, cr.period_to)) {
+    for (const f of numericFields(a, h)) {
+      const unit = fieldUnit(a.template, f);
+      const title = `${a.title} : ${f}${unit ? ` (${unit})` : ""}`;
+      out.push({ title, ...(await svgToPng(chartSvgString(seriesOf(h, f), unit, title))) });
+    }
+  }
+  return out;
+}
+
+export async function buildReportDocx(cr: CrData, p: Patient, cab: Cabinet, charts: ChartImage[] = []): Promise<Blob> {
   const small = { size: 20 };
   const children: Paragraph[] = [];
   const headerLines = [cab.name, cab.profession, ...cab.address.split("\n"), cab.phone && `Tél. ${cab.phone}`, cab.email, cab.rpps && `RPPS / ADELI : ${cab.rpps}`].filter(Boolean) as string[];
@@ -287,6 +316,19 @@ export async function buildReportDocx(cr: CrData, p: Patient, cab: Cabinet): Pro
   // Intertitres en gras, avec un peu d'air.
   const body = htmlToParagraphs(cr.html.replace(/<h[1-6]>(.*?)<\/h[1-6]>/g, "<p><strong>$1</strong></p>"));
   children.push(...body);
+  if (charts.length) {
+    children.push(new Paragraph({ spacing: { before: 240, after: 120 }, children: [new TextRun({ text: "Courbes de progression", bold: true })] }));
+    // Largeur utile d'une page A4 : environ 600 px.
+    for (const c of charts) {
+      const k = Math.min(1, 560 / c.width);
+      children.push(
+        new Paragraph({
+          spacing: { after: 160 },
+          children: [new ImageRun({ type: "png", data: c.data, transformation: { width: Math.round(c.width * k), height: Math.round(c.height * k) }, altText: { name: c.title, description: c.title, title: c.title } })],
+        }),
+      );
+    }
+  }
   if (cab.name)
     children.push(
       new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 480 }, children: [new TextRun({ text: cab.name, bold: true })] }),

@@ -26,6 +26,7 @@ import {
 } from "@/lib/reports";
 import { stamp } from "@/lib/repo";
 import type { IsoDay, Patient } from "@/lib/types";
+import { useActivities } from "./ActivityPicker";
 import { RichEditor } from "./RichEditor";
 import { Button, Empty, Field, Input, Modal, Pill, Select, cx, toast } from "./ui";
 import { useUnsavedGuard } from "./UnsavedGuard";
@@ -41,9 +42,12 @@ export function useReports(patientId: string) {
 }
 
 async function exportWord(cr: CrData, patient: Patient) {
-  const { reportFileName } = await import("@/lib/reports");
+  const { reportFileName, crCharts } = await import("@/lib/reports");
   const cab = await getCabinet();
-  downloadBlob(await buildReportDocx(cr, patient, cab), reportFileName(cr, patient));
+  const activities = (await db.activities.toArray()).filter((a) => !a.deleted_at);
+  const notes = (await db.notes.where("patient_id").equals(patient.id).toArray()).filter((n) => !n.deleted_at);
+  const charts = await crCharts(cr, activities, notes);
+  downloadBlob(await buildReportDocx(cr, patient, cab, charts), reportFileName(cr, patient));
   if (!cab.name) toast("Astuce : renseigne ton en-tête (nom, adresse…) dans Paramètres pour qu'il apparaisse sur les comptes rendus.");
 }
 
@@ -135,6 +139,7 @@ function NewReport({ patient, onPick, onCancel }: { patient: Patient; onPick: (c
   const assessments = useAssessments(patient.id);
   const notes = useNotes(patient.id);
   const goals = useGoals(patient.id);
+  const activities = useActivities();
   const [kind, setKind] = useState<CrKind>(assessments.length ? "bilan" : "evolution");
   const [bilan, setBilan] = useState("");
   const [from, setFrom] = useState("");
@@ -213,7 +218,7 @@ function NewReport({ patient, onPick, onCancel }: { patient: Patient; onPick: (c
           disabled={(kind === "bilan" && !bilan) || (kind === "evolution" && (!from || !to))}
           onClick={() => {
             if (kind === "bilan") onPick(crFromAssessment(patient, assessments.find((a) => a.id === bilan)!));
-            else if (kind === "evolution") onPick(crEvolution(patient, notes, goals, from as IsoDay, to as IsoDay));
+            else if (kind === "evolution") onPick(crEvolution(patient, notes, goals, from as IsoDay, to as IsoDay, activities));
             else onPick(crLetter());
           }}
         >
@@ -345,6 +350,12 @@ function ReportEditor({
 
       <RichEditor value={cr.html} onChange={(html) => set({ html })} minHeight="22rem" placeholder="Rédige ou dicte le compte rendu…" />
       <p className="text-sm text-ink-soft">L'en-tête (ton nom, ton adresse), l'identité du patient et la signature sont ajoutés dans le fichier Word.</p>
+      {cr.kind === "evolution" && (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="size-4 accent-[var(--color-pen)]" checked={Boolean(cr.charts)} onChange={(e) => set({ charts: e.target.checked })} />
+          Ajouter les courbes de progression des activités dans le Word
+        </label>
+      )}
 
       <div className="sticky bottom-0 -mx-5 flex flex-wrap justify-end gap-2 border-t border-rule bg-sheet px-5 py-3">
         <Button variant="ghost" onClick={() => guard.askBeforeClose(onDone)}>

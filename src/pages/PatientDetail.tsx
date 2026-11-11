@@ -1,4 +1,5 @@
 import { NotePhotoStrip } from "@/components/NotePhotos";
+import { ProgressTab } from "@/components/ProgressTab";
 import { ReportsTab } from "@/components/ReportsTab";
 import { ArrowLeft, FileDown, NotebookPen, Pencil, Plus, Search, StickyNote, Trash2, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -29,6 +30,7 @@ const TABS = [
   { id: "bilans", label: "Bilans" },
   { id: "comptes-rendus", label: "Comptes rendus" },
   { id: "objectifs", label: "Objectifs" },
+  { id: "progression", label: "Progression" },
   { id: "documents", label: "Documents" },
   { id: "echanges", label: "Échanges" },
   { id: "famille", label: "Famille" },
@@ -102,6 +104,7 @@ export function PatientDetail() {
       {tab === "taches" && <TasksTab patient={patient} />}
       {tab === "bilans" && <AssessmentsTab patient={patient} />}
       {tab === "comptes-rendus" && <ReportsTab patient={patient} />}
+      {tab === "progression" && <ProgressTab patient={patient} />}
       {tab === "objectifs" && <GoalsTab patient={patient} />}
       {tab === "documents" && <DocumentsTab patient={patient} />}
       {tab === "echanges" && <CommsTab patient={patient} />}
