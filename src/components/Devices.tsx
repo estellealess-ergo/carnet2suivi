@@ -1,4 +1,4 @@
-import { Camera, Link2, Link2Off, Monitor, QrCode, RefreshCw, Smartphone } from "lucide-react";
+import { Camera, Link2, Link2Off, Monitor, QrCode, RefreshCw, ShieldCheck, Smartphone } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { fmtDateTime } from "@/lib/dates";
 import {
@@ -86,6 +86,12 @@ export function Devices() {
           <p className="mt-1 text-sm text-ink-soft">
             {s.lastSync ? `Dernière mise à jour le ${fmtDateTime(s.lastSync)}. ` : ""}
             Fonctionne le mieux quand les deux appareils sont sur le même Wi-Fi.
+          </p>
+          <p className={`mt-2 flex items-start gap-2 text-sm ${s.pending ? "text-ink" : "text-ink-soft"}`}>
+            <ShieldCheck className={`mt-0.5 size-4 shrink-0 ${s.pending ? "text-pen" : "text-done"}`} aria-hidden />
+            {s.pending
+              ? `${s.pending} modification${s.pending > 1 ? "s" : ""} pas encore reçue${s.pending > 1 ? "s" : ""} par ${other} : une copie de sécurité est gardée sur cet appareil, même sans internet. Elle s'efface toute seule dès que ${other} les a reçues.`
+              : `Tout a été transmis à ${other} : aucune copie en attente.`}
           </p>
           {s.error && <p className="mt-1 text-sm text-late">{s.error}</p>}
           <div className="mt-3 flex flex-wrap gap-2">
@@ -246,7 +252,11 @@ export function PeerIndicator() {
   if (!s.paired) return null;
   const on = s.status === "connected" || s.status === "syncing";
   const Icon = s.paired.label === "téléphone" ? Smartphone : Monitor;
-  const text = on ? (s.paired.label === "téléphone" ? "Téléphone relié" : "Ordinateur relié") : "En attente de l'autre appareil";
+  const text = on
+    ? s.paired.label === "téléphone" ? "Téléphone relié" : "Ordinateur relié"
+    : s.pending
+      ? `${s.pending} modif. en attente (copie gardée)`
+      : "En attente de l'autre appareil";
   return (
     <a
       href={`${import.meta.env.BASE_URL}parametres#appareils`}

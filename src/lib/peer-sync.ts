@@ -8,6 +8,7 @@
  *   que du contenu illisible, et un appareil qui n'a pas la clé est refusé.
  * - Fusion ligne par ligne : la version la plus récente (updated_at) gagne. Jamais de suppression physique.
  */
+import Dexie, { type Table } from "dexie";
 import type { DataConnection, Peer as PeerT } from "peerjs";
 import { useSyncExternalStore } from "react";
 import { db, getMeta, setMeta } from "./db";
@@ -32,11 +33,13 @@ export interface PeerState {
   lastSync: string | null;
   error: string | null;
   received: number;
+  /** Modifications pas encore reçues par l'autre appareil (gardées en copie de sécurité). */
+  pending: number;
 }
 
 /* ------------------------------------------------------------------ état observable */
 
-let state: PeerState = { paired: null, status: "off", lastSync: null, error: null, received: 0 };
+let state: PeerState = { paired: null, status: "off", lastSync: null, error: null, received: 0, pending: 0 };
 const listeners = new Set<() => void>();
 function set(p: Partial<PeerState>) {
   state = { ...state, ...p };
@@ -136,6 +139,57 @@ function unpackRow(table: SyncedTable, r: Row): Row {
   return { ...rest, blob: new Blob([b64ToBytes(blob_b64) as BlobPart], { type: rest.mime }) } as unknown as Row;
 }
 
+/* ------------------------------------------------------------------ copie de sécurité des modifications en attente */
+
+/**
+ * Tant que l'autre appareil n'a pas reçu une modification (pas d'internet, appareil éteint…),
+ * une copie est gardée dans une base à part sur cet appareil. Elle est effacée automatiquement
+ * dès que l'autre appareil confirme l'avoir reçue. Au démarrage, si une modification gardée
+ * manque dans les dossiers (ou y est plus ancienne), elle est remise.
+ */
+type Pending = { key: string; table: SyncedTable; id: string; updated_at: string; row: Row };
+class PendingDb extends Dexie {
+  pending!: Table<Pending, string>;
+  constructor() {
+    super("carnet2suivi-attente");
+    this.version(1).stores({ pending: "key, table, updated_at" });
+  }
+}
+export const pendingDb = new PendingDb();
+const pkey = (t: string, id: string) => `${t}:${id}`;
+
+async function refreshPending() {
+  set({ pending: await pendingDb.pending.count() });
+}
+
+async function keepCopy(table: SyncedTable, id: string) {
+  const row = (await db.table(table).get(id)) as Row | undefined;
+  if (!row) return;
+  await pendingDb.pending.put({ key: pkey(table, id), table, id, updated_at: row.updated_at, row });
+  void refreshPending();
+}
+
+/** L'autre appareil a cette version (ou une plus récente) : la copie n'est plus utile. */
+export async function dropCopies(table: string, acked: [string, string][]) {
+  await pendingDb.transaction("rw", pendingDb.pending, async () => {
+    for (const [id, at] of acked) {
+      const p = await pendingDb.pending.get(pkey(table, id));
+      if (p && p.updated_at <= at) await pendingDb.pending.delete(p.key);
+    }
+  });
+  void refreshPending();
+}
+
+/** Remet dans les dossiers les modifications gardées qui y manquent. Renvoie le nombre remis. */
+export async function restorePending(): Promise<number> {
+  let n = 0;
+  for (const t of SYNCED) {
+    const rows = (await pendingDb.pending.where("table").equals(t).toArray()).map((p) => p.row);
+    if (rows.length) n += await applyRows(t, rows);
+  }
+  return n;
+}
+
 /* ------------------------------------------------------------------ messages */
 
 type Msg =
@@ -143,6 +197,7 @@ type Msg =
   | { t: "manifest"; m: Record<string, [string, string][]> }
   | { t: "rows"; table: SyncedTable; rows: Row[] }
   | { t: "synced" }
+  | { t: "got"; table: SyncedTable; ids: [string, string][] }
   | { t: "photo-request"; req: string; label: string }
   | { t: "photo"; req: string; name: string; mime: string; b64: string }
   | { t: "photo-end"; req: string };
@@ -231,14 +286,18 @@ async function attach(c: DataConnection, initiator: boolean) {
   const send = async (m: Msg) => c.open && c.send(await seal(k, m));
   if (initiator) await send({ t: "hello", id: await myId(), label: deviceLabel() });
   set({ status: "syncing", error: null });
-  c.on("data", async (d) => {
-    let m: Msg;
-    try {
-      m = await open(k, d as ArrayBuffer);
-    } catch {
-      return;
-    }
-    await handle(m, send);
+  // Messages traités un par un, dans l'ordre d'arrivée.
+  let queue = Promise.resolve();
+  c.on("data", (d) => {
+    queue = queue.then(async () => {
+      let m: Msg;
+      try {
+        m = await open(k, d as ArrayBuffer);
+      } catch {
+        return;
+      }
+      await handle(m, send).catch(() => undefined);
+    });
   });
   c.on("close", () => {
     if (conn === c) conn = null;
@@ -267,8 +326,16 @@ async function handle(m: Msg, send: (m: Msg) => Promise<unknown>) {
     case "rows": {
       const n = await applyRows(m.table, m.rows.map((r) => unpackRow(m.table, r)));
       if (n) set({ received: state.received + n });
+      // Accusé de réception : l'autre appareil peut effacer sa copie de sécurité.
+      const ids = m.rows.map((r) => [r.id, r.updated_at] as [string, string]);
+      await send({ t: "got", table: m.table, ids });
+      // Une version plus récente reçue remplace aussi une copie gardée ici.
+      await dropCopies(m.table, ids);
       return;
     }
+    case "got":
+      await dropCopies(m.table, m.ids);
+      return;
     case "synced": {
       const at = new Date().toISOString();
       await setMeta("peer_last_sync", at);
@@ -352,11 +419,16 @@ function hookTables() {
   hooked = true;
   for (const t of SYNCED) {
     const table = db.table(t);
+    const changed = (pk: unknown) => {
+      if (applying || !state.paired) return;
+      void keepCopy(t, String(pk));
+      markDirty(t, String(pk));
+    };
     table.hook("creating", function (pk) {
-      this.onsuccess = () => markDirty(t, String(pk));
+      this.onsuccess = () => changed(pk);
     });
     table.hook("updating", function (_m, pk) {
-      this.onsuccess = () => markDirty(t, String(pk));
+      this.onsuccess = () => changed(pk);
     });
   }
 }
@@ -367,9 +439,15 @@ function hookTables() {
 export async function initPeerSync() {
   const p = (await getMeta<Pairing>("peer_pairing")) ?? null;
   set({ paired: p, lastSync: (await getMeta<string>("peer_last_sync")) ?? null });
-  if (!p) return;
+  if (!p) {
+    await pendingDb.pending.clear();
+    return;
+  }
   key = await importKey(p.key);
   hookTables();
+  // Sécurité : remet ce qui aurait été perdu depuis la dernière transmission.
+  await restorePending();
+  await refreshPending();
   void connectNow();
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && !conn?.open) void connectNow();
@@ -427,6 +505,8 @@ export async function syncAgain() {
 
 export async function unpair() {
   await db.meta.delete("peer_pairing");
+  await pendingDb.pending.clear();
+  void refreshPending();
   key = null;
   conn?.close();
   conn = null;

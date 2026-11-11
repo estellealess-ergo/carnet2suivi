@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db";
-import { applyRows, open, rowsToSend, seal } from "../peer-sync";
+import { applyRows, dropCopies, open, pendingDb, restorePending, rowsToSend, seal } from "../peer-sync";
 
 beforeEach(async () => {
   await Promise.all(db.tables.map((t) => t.clear()));
@@ -34,5 +34,20 @@ describe("liaison directe", () => {
     expect(new TextDecoder().decode(sealed)).not.toContain("synced");
     expect(await open(k1, sealed)).toEqual({ t: "synced" });
     await expect(open(k2, sealed)).rejects.toThrow();
+  });
+});
+
+describe("copie de sécurité des modifications en attente", () => {
+  const row = (at: string, html: string) => ({ id: "n9", patient_id: "p1", kind: "seance", note_date: "2026-11-11", raw_text: null, owner_id: null, created_at: at, updated_at: at, deleted_at: null, content_html: html });
+  it("remet une modification perdue, puis s'efface quand l'autre appareil l'a reçue", async () => {
+    await pendingDb.pending.clear();
+    await pendingDb.pending.put({ key: "notes:n9", table: "notes", id: "n9", updated_at: "2026-11-11T10:00:00Z", row: row("2026-11-11T10:00:00Z", "<p>hors ligne</p>") });
+    expect(await restorePending()).toBe(1);
+    expect((await db.notes.get("n9"))!.content_html).toBe("<p>hors ligne</p>");
+    // Accusé d'une version plus ancienne : la copie reste.
+    await dropCopies("notes", [["n9", "2026-11-11T09:00:00Z"]]);
+    expect(await pendingDb.pending.count()).toBe(1);
+    await dropCopies("notes", [["n9", "2026-11-11T10:00:00Z"]]);
+    expect(await pendingDb.pending.count()).toBe(0);
   });
 });
