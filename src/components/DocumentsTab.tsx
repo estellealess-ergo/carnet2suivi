@@ -25,7 +25,7 @@ const fmtSize = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 
  * Documents du dossier (bilans en PDF, courriers, comptes rendus de l'école…).
  * Ils restent sur cet appareil et sont inclus dans la sauvegarde chiffrée.
  */
-export function DocumentsTab({ patient }: { patient: Patient }) {
+export function DocumentsTab({ patient, emptyText = "Aucun document dans ce dossier." }: { patient: Pick<Patient, "id">; emptyText?: string }) {
   const docs =
     useLiveQuery(
       async () =>
@@ -99,7 +99,7 @@ export function DocumentsTab({ patient }: { patient: Patient }) {
       </div>
 
       {docs.length === 0 ? (
-        <Empty>Aucun document dans ce dossier.</Empty>
+        <Empty>{emptyText}</Empty>
       ) : (
         <ul className="divide-y divide-rule rounded-lg border border-rule bg-sheet">
           {docs.map((d) => (
@@ -111,6 +111,12 @@ export function DocumentsTab({ patient }: { patient: Patient }) {
                   {d.doc_date ? fmtDay(d.doc_date) : "Sans date"} · {fmtSize(d.size)}
                 </span>
               </button>
+              {d.text && (
+                <details className="order-last w-full text-sm">
+                  <summary className="cursor-pointer font-semibold text-pen">Texte lu sur le document</summary>
+                  <p className="mt-1 whitespace-pre-wrap rounded-md bg-paper p-2">{d.text}</p>
+                </details>
+              )}
               <Pill>{DOC_CATEGORY[d.category]}</Pill>
               <span className="flex">
                 <Button size="sm" variant="ghost" onClick={() => open(d)} aria-label="Ouvrir">

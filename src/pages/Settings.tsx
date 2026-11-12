@@ -5,6 +5,8 @@ import { BackupSection } from "@/components/BackupSection";
 import { ActivityLibrary } from "@/components/ActivityPicker";
 import { CabinetSettings } from "@/components/CabinetSettings";
 import { Devices } from "@/components/Devices";
+import { DocumentsTab } from "@/components/DocumentsTab";
+import { CABINET } from "@/lib/import-full";
 import { ImportNotes } from "@/components/ImportNotes";
 import { GmailSettings, TeamSettings } from "@/components/TeamSettings";
 import { Button, Modal, PageHeader } from "@/components/ui";
@@ -114,6 +116,12 @@ export function Settings() {
         <section id="activites" className={section}>
           <h2 className="mb-2">Mes activités</h2>
           <ActivityLibrary />
+        </section>
+
+        <section id="ressources" className={section}>
+          <h2 className="mb-2">Ressources du cabinet</h2>
+          <p className="mb-3 text-ink-soft">Supports, modèles et documents qui ne concernent aucun patient en particulier.</p>
+          <DocumentsTab patient={{ id: CABINET }} emptyText="Aucune ressource pour l'instant." />
         </section>
 
         <CabinetSettings />

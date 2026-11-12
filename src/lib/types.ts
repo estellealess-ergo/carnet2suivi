@@ -216,6 +216,8 @@ export interface PatientDocument extends SyncedRow {
   mime: string;
   size: number;
   blob: Blob;
+  /** Texte lu sur le document (repris de l'ancienne application). */
+  text?: string | null;
 }
 
 export interface Tables {

@@ -1,4 +1,5 @@
-import { FileSpreadsheet, FileText } from "lucide-react";
+import { Archive, FileSpreadsheet, FileText } from "lucide-react";
+import { applyFullImport, planImport, readBackup, type ImportPlan } from "@/lib/import-full";
 import { useRef, useState } from "react";
 import { fmtDay } from "@/lib/dates";
 import { textToHtml } from "@/lib/html";
@@ -9,11 +10,11 @@ import { create } from "@/lib/repo";
 import type { IsoDay, Patient } from "@/lib/types";
 import { Button, Field, Input, Select, Textarea, cx, toast } from "./ui";
 
-type Mode = "tableau" | "texte";
+type Mode = "sauvegarde" | "tableau" | "texte";
 
-/** Importation de notes existantes : tableau Excel/CSV, ou texte / document Word. */
+/** Importation : sauvegarde complète de l'ancienne application, tableau Excel/CSV, ou texte / document Word. */
 export function ImportNotes() {
-  const [mode, setMode] = useState<Mode>("tableau");
+  const [mode, setMode] = useState<Mode>("sauvegarde");
   const tab = (m: Mode, label: string, Icon: typeof FileText) => (
     <button
       type="button"
@@ -30,14 +31,16 @@ export function ImportNotes() {
   );
   return (
     <section className="rounded-lg border border-rule bg-sheet p-5">
-      <h2 className="mb-2">Importer des notes</h2>
+      <h2 className="mb-2">Importer des dossiers et des notes</h2>
       <p className="mb-3 text-ink-soft">
-        Pour reprendre des notes écrites ailleurs. Rien n'est enregistré avant ta confirmation.
+        Pour reprendre des dossiers et des notes écrits ailleurs. Rien n'est enregistré avant ta confirmation.
       </p>
       <div className="mb-4 flex flex-wrap gap-2" role="tablist">
+        {tab("sauvegarde", "Une sauvegarde complète (.zip)", Archive)}
         {tab("tableau", "Un tableau (Excel, CSV)", FileSpreadsheet)}
         {tab("texte", "Un texte ou un document Word", FileText)}
       </div>
+      {mode === "sauvegarde" && <FromBackup />}
       {mode === "tableau" && <FromTable />}
       {mode === "texte" && <FromText />}
     </section>
@@ -261,6 +264,89 @@ function FromText() {
           >
             Importer ces notes
           </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ sauvegarde complète */
+
+function FromBackup() {
+  const input = useRef<HTMLInputElement>(null);
+  const [plan, setPlan] = useState<ImportPlan | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  return (
+    <div>
+      <p className="mb-3 text-sm text-ink-soft">
+        Le fichier .zip de « Tout exporter » de l'ancienne application (ou seulement son fichier Excel). Tout est repris :
+        dossiers, contacts, notes et anciennes versions, séances, rendez-vous, prévisions, tâches, objectifs et mesures,
+        bilans, envois aux familles, échanges, comptes rendus, documents et photos. Ce qui n'a pas d'équivalent ici
+        (consentements, factures, profil occupationnel, exercices maison…) est rangé, lisible, dans les documents du
+        patient. Refaire l'import ne crée pas de doublons.
+      </p>
+      <Button onClick={() => input.current?.click()} disabled={busy !== null}>
+        <Archive className="size-4" /> {busy ?? "Choisir la sauvegarde"}
+      </Button>
+      <input
+        ref={input}
+        type="file"
+        hidden
+        accept=".zip,.xlsx,application/zip"
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (!f) return;
+          setBusy("Lecture…");
+          try {
+            setPlan(planImport(await readBackup(f)));
+          } catch (err) {
+            toast((err as Error).message || "Ce fichier n'a pas pu être lu.", "error");
+          } finally {
+            setBusy(null);
+          }
+        }}
+      />
+      {plan && (
+        <div className="mt-4 rounded-md border border-rule bg-paper p-4">
+          <p className="mb-2 font-semibold">Voici ce qui sera repris :</p>
+          <ul className="space-y-0.5 text-sm">
+            {plan.counts.map((c) => (
+              <li key={c.label}>
+                <strong className="tabular-nums">{c.n}</strong> {c.label}
+              </li>
+            ))}
+          </ul>
+          {plan.warnings.length > 0 && (
+            <ul className="mt-2 space-y-0.5 text-sm text-late">
+              {plan.warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-3 flex gap-2">
+            <Button variant="ghost" onClick={() => setPlan(null)}>
+              Annuler
+            </Button>
+            <Button
+              variant="primary"
+              disabled={busy !== null}
+              onClick={async () => {
+                setBusy("Import en cours…");
+                try {
+                  const n = await applyFullImport(plan);
+                  toast(`Import terminé : ${n} élément${n > 1 ? "s" : ""} repris`);
+                  setPlan(null);
+                } catch (err) {
+                  toast("L'import a échoué : " + (err as Error).message, "error");
+                } finally {
+                  setBusy(null);
+                }
+              }}
+            >
+              Tout importer
+            </Button>
+          </div>
         </div>
       )}
     </div>
