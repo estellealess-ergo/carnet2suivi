@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { textToHtml } from "../html";
-import { buildNoteHtml, fillTemplate, insertInRubric, jotsToRaw, keywordSuggestions, rawToJots, templateFields } from "../session-note";
+import { buildNoteHtml, forgottenFacts, fillTemplate, insertInRubric, jotsToRaw, keywordSuggestions, rawToJots, templateFields } from "../session-note";
 
 describe("note de séance en trois rubriques", () => {
   it("compose la note à partir du débrief, sans rubrique vide", () => {
@@ -59,5 +59,12 @@ describe("activités enregistrées", () => {
     const n = "<p><strong>Fait :</strong> A</p><p><strong>À reprendre :</strong> C</p>";
     expect(insertInRubric(n, "fait", "B")).toBe("<p><strong>Fait :</strong> A ; B</p><p><strong>À reprendre :</strong> C</p>");
     expect(insertInRubric(n, "observe", "O")).toBe("<p><strong>Fait :</strong> A</p><p><strong>Observé :</strong> O</p><p><strong>À reprendre :</strong> C</p>");
+  });
+});
+
+describe("vérification de la mise au propre", () => {
+  it("signale les chiffres oubliés", () => {
+    expect(forgottenFacts("leçon 12, 18 mpm, 92% ; 10 min le soir", "Leçon 12 : 18 mots par minute.")).toEqual(["92%", "10 min"]);
+    expect(forgottenFacts("18,5 mpm", "18.5 mots par minute")).toEqual([]);
   });
 });

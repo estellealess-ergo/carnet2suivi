@@ -12,7 +12,7 @@ import type { Forecast, Note, NoteKind, Patient, PendingPhoto } from "@/lib/type
 import { NotePhotoPicker, attachPhotos } from "./NotePhotos";
 import { RichEditor } from "./RichEditor";
 import { DebriefDialog, QuickCapture } from "./SessionTools";
-import { buildNoteHtml, insertInRubric, jotsToRaw, rawToJots } from "@/lib/session-note";
+import { buildNoteHtml, forgottenFacts, insertInRubric, jotsToRaw, rawToJots } from "@/lib/session-note";
 import { ActivityPicker } from "./ActivityPicker";
 import { Button, Field, Input, Modal, cx, toast } from "./ui";
 import { useUnsavedGuard } from "./UnsavedGuard";
@@ -142,7 +142,13 @@ export function NoteEditor({
   if (closeRef) closeRef.current = () => guard.askBeforeClose(onDone);
 
   const sourceText = () =>
-    [htmlToText(html), jots.length ? `Mots-clés de séance : ${jots.join(" ; ")}` : ""].filter(Boolean).join("\n\n");
+    [
+      htmlToText(html),
+      jots.length ? `Mots-clés de séance : ${jots.join(" ; ")}` : "",
+      goalIds.length ? `Objectifs travaillés : ${goals.filter((g) => goalIds.includes(g.id)).map((g) => g.title).join(" ; ")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
 
   async function cleanUp() {
     const text = sourceText();
@@ -153,7 +159,10 @@ export function NoteEditor({
       if (!out.trim()) throw new Error("L'assistant a renvoyé une réponse vide.");
       setBeforeCleanup(html);
       setHtml(textToHtml(out));
-      toast("Note mise au propre. Relis-la avant d'enregistrer.");
+      const lost = forgottenFacts(text, out);
+      if (lost.length)
+        toast(`Attention, l'assistant a peut-être oublié : ${lost.join(", ")}. Vérifie, ou reviens au texte d'origine.`, "error");
+      else toast("Note mise au propre. Relis-la avant d'enregistrer.");
     } catch (e) {
       toast((e as Error).message, "error");
     } finally {
@@ -217,12 +226,12 @@ export function NoteEditor({
             {busy ? "Mise au propre…" : "Mettre au propre"}
           </Button>
         )}
-        {!canAssist && (
+        {(
           <>
             <Button
               variant="ghost"
               disabled={empty}
-              title="Copie la note (nom du patient masqué) avec les consignes, à coller dans Claude"
+              title="Copie la note (nom du patient masqué) avec les consignes, à coller dans Claude : rédaction plus riche que l'assistant de l'ordinateur"
               onClick={async () => {
                 await copyForClaude("note", sourceText(), patient);
                 toast("Copié. Colle-le dans Claude, puis copie sa réponse et clique sur « Coller la réponse ».");

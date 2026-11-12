@@ -140,3 +140,16 @@ export function insertInRubric(html: string, rubric: RubricKey, text: string): s
   [...body.querySelectorAll("p")].forEach((x) => !x.textContent?.trim() && x !== p && x.remove());
   return body.innerHTML;
 }
+
+/**
+ * Chiffres des notes brutes absents du texte mis au propre (ex. « 18 », « 92 % ») :
+ * signale ce que l'assistant aurait pu oublier.
+ */
+export function forgottenFacts(source: string, result: string): string[] {
+  const nums = (t: string) => [...t.matchAll(/(\d+(?:[.,]\d+)?)\s*(%|mpm|min|ans?|cm|s\b)?/gi)].map((m) => ({ n: m[1]!.replace(",", "."), raw: m[0].trim() }));
+  const out = new Set(nums(result).map((x) => x.n));
+  const seen = new Set<string>();
+  return nums(source)
+    .filter((x) => !out.has(x.n) && !seen.has(x.n) && (seen.add(x.n), true))
+    .map((x) => x.raw);
+}
