@@ -14,6 +14,7 @@ import { RichEditor } from "./RichEditor";
 import { DebriefDialog, QuickCapture } from "./SessionTools";
 import { buildNoteHtml, forgottenFacts, insertInRubric, jotsToRaw, rawToJots } from "@/lib/session-note";
 import { ActivityPicker } from "./ActivityPicker";
+import { LastSessionRecap } from "./LastSessionRecap";
 import { Button, Field, Input, Modal, cx, toast } from "./ui";
 import { useUnsavedGuard } from "./UnsavedGuard";
 
@@ -275,6 +276,8 @@ export function NoteEditor({
           </Button>
         )}
       </div>
+
+      {kind === "seance" && <LastSessionRecap patientId={patient.id} day={day} currentId={note?.id} compact={compact} />}
 
       {forecasts.length > 0 && (
         <div className="mb-3 rounded-md border border-rule bg-sheet p-3">

@@ -63,24 +63,8 @@ const section = (title: string, body: string) => `<h3>${esc(title)}</h3>${body}`
 
 /* ------------------------------------------------------------------ notes en rubriques */
 
-export type NoteParts = { fait: string; observe: string; reprendre: string; autre: string };
-
-/** Retrouve les rubriques Fait / Observé / À reprendre d'une note de séance. */
-export function noteParts(html: string): NoteParts {
-  const out: NoteParts = { fait: "", observe: "", reprendre: "", autre: "" };
-  const doc = new DOMParser().parseFromString(html || "", "text/html");
-  const blocks = [...doc.body.querySelectorAll("p, li, h1, h2, h3")].map((el) => el.textContent?.trim() ?? "").filter(Boolean);
-  let current: keyof NoteParts = "autre";
-  for (const b of blocks) {
-    const m = b.match(/^(Fait|Observé|Observe|À reprendre|A reprendre)\s*:\s*(.*)$/i);
-    if (m) {
-      const k = m[1]!.toLowerCase();
-      current = k.startsWith("fait") ? "fait" : k.startsWith("obs") ? "observe" : "reprendre";
-      if (m[2]) out[current] += (out[current] ? " " : "") + m[2];
-    } else out[current] += (out[current] ? " " : "") + b;
-  }
-  return out;
-}
+export { noteParts, type NoteParts } from "./session-note";
+import { noteParts } from "./session-note";
 
 /* ------------------------------------------------------------------ pré-remplissage */
 

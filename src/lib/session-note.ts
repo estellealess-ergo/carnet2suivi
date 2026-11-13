@@ -153,3 +153,25 @@ export function forgottenFacts(source: string, result: string): string[] {
     .filter((x) => !out.has(x.n) && !seen.has(x.n) && (seen.add(x.n), true))
     .map((x) => x.raw);
 }
+
+/* ------------------------------------------------------------------ rubriques d'une note */
+
+export type NoteParts = { fait: string; observe: string; reprendre: string; autre: string };
+
+/** Retrouve les rubriques Fait / Observé / À reprendre d'une note de séance. */
+export function noteParts(html: string): NoteParts {
+  const out: NoteParts = { fait: "", observe: "", reprendre: "", autre: "" };
+  const doc = new DOMParser().parseFromString(html || "", "text/html");
+  const blocks = [...doc.body.querySelectorAll("p, li, h1, h2, h3")].map((el) => el.textContent?.trim() ?? "").filter(Boolean);
+  let current: keyof NoteParts = "autre";
+  for (const b of blocks) {
+    const m = b.match(/^(Fait|Observé|Observe|À reprendre|A reprendre)\s*:\s*(.*)$/i);
+    if (m) {
+      const k = m[1]!.toLowerCase();
+      current = k.startsWith("fait") ? "fait" : k.startsWith("obs") ? "observe" : "reprendre";
+      if (m[2]) out[current] += (out[current] ? " " : "") + m[2];
+    } else out[current] += (out[current] ? " " : "") + b;
+  }
+  return out;
+}
+
