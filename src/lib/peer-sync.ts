@@ -122,7 +122,11 @@ async function manifest(): Promise<Record<string, [string, string][]>> {
   const out: Record<string, [string, string][]> = {};
   for (const t of SYNCED) {
     const pairs: [string, string][] = [];
-    await db.table(t).each((r: Row) => pairs.push([r.id, r.updated_at]));
+    try {
+      await db.table(t).each((r: Row) => pairs.push([r.id, r.updated_at]));
+    } catch {
+      continue; // table inconnue d'une version plus ancienne de l'application : on passe
+    }
     out[t] = pairs;
   }
   return out;
@@ -197,6 +201,8 @@ type Msg =
   | { t: "manifest"; m: Record<string, [string, string][]> }
   | { t: "rows"; table: SyncedTable; rows: Row[] }
   | { t: "synced" }
+  | { t: "ping" }
+  | { t: "pong" }
   | { t: "got"; table: SyncedTable; ids: [string, string][] }
   | { t: "photo-request"; req: string; label: string }
   | { t: "photo"; req: string; name: string; mime: string; b64: string }
@@ -272,7 +278,6 @@ async function accept(c: DataConnection) {
         pairingKey = null;
         set({ paired: p });
       }
-      if (conn?.open) conn.close();
       void attach(c, false);
     } catch {
       c.close();
@@ -280,15 +285,36 @@ async function accept(c: DataConnection) {
   });
 }
 
+/** Dernier message reçu de l'autre appareil : sans nouvelles, la liaison est considérée coupée. */
+let lastSeen = 0;
+
 async function attach(c: DataConnection, initiator: boolean) {
+  const me = await myId();
+  // Les deux appareils peuvent s'appeler en même temps : on garde la liaison ouverte par le plus petit identifiant.
+  if (conn && conn !== c && conn.open && Date.now() - lastSeen < DEAD_AFTER) {
+    const other = state.paired?.other ?? c.peer;
+    const bySmaller = initiator ? me < other : other < me;
+    if (!bySmaller) {
+      if (initiator) {
+        // L'autre appareil ne connaît pas encore cette liaison : on se présente quand même, puis on la ferme.
+        c.send(await seal(key!, { t: "hello", id: me, label: deviceLabel() } satisfies Msg));
+      }
+      setTimeout(() => c.close(), 1000);
+      return;
+    }
+    const old = conn;
+    setTimeout(() => old.close(), 1000);
+  }
   conn = c;
+  lastSeen = Date.now();
   const k = key!;
   const send = async (m: Msg) => c.open && c.send(await seal(k, m));
-  if (initiator) await send({ t: "hello", id: await myId(), label: deviceLabel() });
+  if (initiator) await send({ t: "hello", id: me, label: deviceLabel() });
   set({ status: "syncing", error: null });
   // Messages traités un par un, dans l'ordre d'arrivée.
   let queue = Promise.resolve();
   c.on("data", (d) => {
+    if (conn === c) lastSeen = Date.now();
     queue = queue.then(async () => {
       let m: Msg;
       try {
@@ -312,6 +338,8 @@ async function handle(m: Msg, send: (m: Msg) => Promise<unknown>) {
     case "manifest": {
       const mine = await manifest();
       for (const t of SYNCED) {
+        // L'autre appareil n'a pas encore cette table (application pas à jour) : rien à lui envoyer.
+        if (!(t in m.m)) continue;
         const ids = rowsToSend(mine[t] ?? [], m.m[t] ?? []);
         if (!ids.length) continue;
         const rows = (await db.table(t).bulkGet(ids)).filter(Boolean) as Row[];
@@ -323,7 +351,13 @@ async function handle(m: Msg, send: (m: Msg) => Promise<unknown>) {
       await send({ t: "synced" });
       return;
     }
+    case "ping":
+      await send({ t: "pong" });
+      return;
+    case "pong":
+      return;
     case "rows": {
+      if (!SYNCED.includes(m.table)) return;
       const n = await applyRows(m.table, m.rows.map((r) => unpackRow(m.table, r)));
       if (n) set({ received: state.received + n });
       // Accusé de réception : l'autre appareil peut effacer sa copie de sécurité.
@@ -361,16 +395,23 @@ async function handle(m: Msg, send: (m: Msg) => Promise<unknown>) {
   }
 }
 
+const DEAD_AFTER = 25_000;
+let calling: DataConnection | null = null;
+const alive = () => Boolean(conn?.open) && Date.now() - lastSeen < DEAD_AFTER;
+
 async function connectNow() {
   const p = state.paired;
-  if (!p || conn?.open) return;
+  if (!p || alive()) return;
   try {
     const pr = await startPeer();
-    set({ status: "waiting", error: null });
-    // Un seul des deux appareils appelle l'autre (le plus petit identifiant) ; l'autre attend.
-    if (p.me < p.other) {
+    if (!alive()) set({ status: "waiting", error: null });
+    // Les deux appareils appellent l'autre : le premier qui répond gagne (plus rapide au réveil du téléphone).
+    if (!calling?.open) {
+      calling?.close();
       const c = pr.connect(p.other, { reliable: true, serialization: "binary" });
+      calling = c;
       c.once("open", () => void attach(c, true));
+      setTimeout(() => calling === c && !c.open && (c.close(), (calling = null)), 15_000);
     }
   } catch (e) {
     set({ error: (e as Error).message });
@@ -382,9 +423,34 @@ function scheduleConnect() {
   if (retry) clearTimeout(retry);
   if (!state.paired) return;
   retry = setTimeout(() => {
-    if (document.visibilityState === "visible" && !conn?.open) void connectNow();
+    if (!alive()) void connectNow();
     else scheduleConnect();
   }, 8000);
+}
+
+/**
+ * Battement de cœur : un « ping » toutes les 10 s. Une liaison sans réponse (téléphone mis en veille,
+ * réseau changé…) peut rester « ouverte » sans plus rien transmettre : on la ferme et on rappelle.
+ * Toutes les minutes, on compare aussi tout le contenu, pour rattraper un envoi perdu.
+ */
+let beat: ReturnType<typeof setInterval> | null = null;
+let beats = 0;
+function startHeartbeat() {
+  if (beat) return;
+  beat = setInterval(() => {
+    if (!state.paired || !key) return;
+    const c = conn;
+    if (!c) return;
+    if (!c.open || Date.now() - lastSeen > DEAD_AFTER) {
+      conn = null;
+      c.close();
+      set({ status: "waiting" });
+      void connectNow();
+      return;
+    }
+    void seal(key, { t: "ping" } satisfies Msg).then((b) => c.open && c.send(b));
+    if (++beats % 6 === 0) void syncAgain(true);
+  }, 10_000);
 }
 
 /* ------------------------------------------------------------------ envoi en direct des modifications */
@@ -417,6 +483,20 @@ let hooked = false;
 function hookTables() {
   if (hooked) return;
   hooked = true;
+  startHeartbeat();
+  // Au retour sur l'application (téléphone sorti de veille, réseau revenu) : on vérifie la liaison et on compare tout.
+  const wake = () => {
+    if (document.visibilityState !== "visible" || !state.paired) return;
+    if (alive()) void syncAgain(true);
+    else {
+      conn?.close();
+      conn = null;
+      void connectNow();
+    }
+  };
+  document.addEventListener("visibilitychange", wake);
+  window.addEventListener("online", wake);
+  window.addEventListener("focus", wake);
   for (const t of SYNCED) {
     const table = db.table(t);
     const changed = (pk: unknown) => {
@@ -449,9 +529,6 @@ export async function initPeerSync() {
   await restorePending();
   await refreshPending();
   void connectNow();
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && !conn?.open) void connectNow();
-  });
 }
 
 /** Côté ordinateur : prépare l'association et renvoie le contenu du QR code. */
@@ -496,9 +573,9 @@ export async function joinPairing(code: string) {
   scheduleConnect();
 }
 
-export async function syncAgain() {
+export async function syncAgain(quiet = false) {
   if (conn?.open && key) {
-    set({ status: "syncing" });
+    if (!quiet) set({ status: "syncing" });
     conn.send(await seal(key, { t: "manifest", m: await manifest() } satisfies Msg));
   } else void connectNow();
 }
