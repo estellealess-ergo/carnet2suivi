@@ -56,6 +56,7 @@ export function SideBySide() {
             patient={patients.find((p) => p.id === id) ?? null}
             onClose={() => setSlots(columns.filter((_, j) => j !== i))}
             defaultDate={date}
+            first={i === 0}
           />
         ))}
       </div>
@@ -75,7 +76,7 @@ export function SideBySide() {
   );
 }
 
-function Column({ patient, onClose, defaultDate }: { patient: Patient | null; onClose: () => void; defaultDate?: string }) {
+function Column({ patient, onClose, defaultDate, first }: { patient: Patient | null; onClose: () => void; defaultDate?: string; first?: boolean }) {
   const closeRef = useRef<(() => void) | null>(null);
   if (!patient) return null;
   return (
@@ -89,7 +90,7 @@ function Column({ patient, onClose, defaultDate }: { patient: Patient | null; on
       <div className="mb-3">
         <PinnedInfo patient={patient} editable={false} />
       </div>
-      <NoteEditor patient={patient} onDone={onClose} closeRef={closeRef} compact defaultDate={defaultDate} />
+      <NoteEditor patient={patient} onDone={onClose} closeRef={closeRef} compact defaultDate={defaultDate} autoFocus={first} />
     </section>
   );
 }

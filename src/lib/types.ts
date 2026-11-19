@@ -55,6 +55,8 @@ export interface Patient extends SyncedRow {
   /** Information toujours affichée en haut de la fiche et dans Ma journée. */
   pinned_info: string | null;
   notes: string | null;
+  /** Nom(s) utilisé(s) dans Google Agenda (ex. « Milo P. »), pour reconnaître les rendez-vous. */
+  calendar_names?: string[] | null;
 }
 
 export type NoteKind = "seance" | "generale";
@@ -291,4 +293,15 @@ export interface PendingPhoto {
   id: string;
   name: string;
   blob: Blob;
+}
+
+/** Rendez-vous lu dans Google Agenda (copie locale, jamais synchronisée ni renvoyée). */
+export interface AgendaEvent {
+  id: string;
+  /** Jour à Paris. */
+  day: IsoDay;
+  /** « 09:30 » (heure de Paris). */
+  time: string;
+  end: string | null;
+  title: string;
 }

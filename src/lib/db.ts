@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { Draft, OutboxEntry, PatientDocument, Tables } from "./types";
+import type { AgendaEvent, Draft, OutboxEntry, PatientDocument, Tables } from "./types";
 
 /**
  * Base locale de l'appareil (IndexedDB).
@@ -21,6 +21,7 @@ export class LocalDb extends Dexie {
   patient_shares!: Table<Tables["patient_shares"], string>;
   day_changes!: Table<Tables["day_changes"], string>;
   activities!: Table<Tables["activities"], string>;
+  agenda_events!: Table<AgendaEvent, string>;
   /** Documents joints : sur l'appareil uniquement (non synchronisés), inclus dans la sauvegarde. */
   documents!: Table<PatientDocument, string>;
   outbox!: Table<OutboxEntry, number>;
@@ -61,6 +62,8 @@ export class LocalDb extends Dexie {
     this.version(5).stores({ documents: "id, patient_id, note_id, updated_at" });
     // Bibliothèque d'activités (modèles à compléter dans les notes).
     this.version(6).stores({ activities: "id, updated_at" });
+    // Copie locale des rendez-vous Google Agenda (lecture seule, propre à l'appareil).
+    this.version(7).stores({ agenda_events: "id, day" });
   }
 }
 

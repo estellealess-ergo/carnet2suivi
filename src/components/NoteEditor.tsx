@@ -33,7 +33,10 @@ export function NoteEditor({
   compact,
   closeRef,
   defaultDate,
+  autoFocus = true,
 }: {
+  /** Notes côte à côte : seule la première colonne prend le curseur (sinon la page saute à la dernière). */
+  autoFocus?: boolean;
   patient: Patient;
   note?: Note | null;
   kind?: NoteKind;
@@ -343,7 +346,7 @@ export function NoteEditor({
       )}
 
       <div className={cx(compact && "min-h-0 flex-1 overflow-y-auto")}>
-        <RichEditor value={html} onChange={setHtml} autoFocus={!note} minHeight={compact ? "16rem" : "14rem"} placeholder={kind === "seance" ? "Fait, Observé, À reprendre… Utilise le débrief ou écris directement." : "Écrire ou dicter…"} />
+        <RichEditor value={html} onChange={setHtml} autoFocus={autoFocus && !note} minHeight={compact ? "16rem" : "14rem"} placeholder={kind === "seance" ? "Fait, Observé, À reprendre… Utilise le débrief ou écris directement." : "Écrire ou dicter…"} />
       </div>
 
       {/* Barre collée en bas : reste visible même avec un texte très long sur téléphone. */}

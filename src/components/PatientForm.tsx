@@ -50,6 +50,7 @@ export function PatientForm({
 }) {
   const initial = patient ? pick(patient) : { ...EMPTY, sort_order: nextSortOrder };
   const [v, setV] = useState<Values>(initial);
+  const [agendaNames, setAgendaNames] = useState((initial.calendar_names ?? []).join(" ; "));
   const releaseRef = useRef<(() => void) | null>(null);
   const dirty = JSON.stringify(v) !== JSON.stringify(initial);
   const set = <K extends keyof Values>(k: K, val: Values[K]) => setV((x) => ({ ...x, [k]: val }));
@@ -163,6 +164,18 @@ export function PatientForm({
         )}
         <Field label="Début du suivi">
           <Input type="date" {...text("care_start_date")} />
+        </Field>
+        <Field label="Nom dans l'agenda" hint="Tel qu'écrit dans Google Agenda, ex. « Milo P. ». Plusieurs : séparés par « ; ».">
+          <Input
+            value={agendaNames}
+            placeholder={v.first_name ? `${v.first_name} ${v.last_name.charAt(0)}${v.last_name ? "." : ""}` : "Milo P."}
+            onChange={(e) => {
+              setAgendaNames(e.target.value);
+              const list = e.target.value.split(";").map((x) => x.trim()).filter(Boolean);
+              // Vide : on garde la valeur d'origine (absente ou vide) pour ne pas signaler de modification.
+              set("calendar_names", (list.length ? list : initial.calendar_names?.length ? [] : initial.calendar_names) as never);
+            }}
+          />
         </Field>
         <Field label="École / établissement">
           <Input {...text("school_name")} />

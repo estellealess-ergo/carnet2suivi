@@ -5,6 +5,7 @@ import { BackupSection } from "@/components/BackupSection";
 import { ActivityLibrary } from "@/components/ActivityPicker";
 import { CabinetSettings } from "@/components/CabinetSettings";
 import { Devices } from "@/components/Devices";
+import { GoogleAgendaSettings } from "@/components/GoogleAgendaSettings";
 import { DocumentsTab } from "@/components/DocumentsTab";
 import { CABINET } from "@/lib/import-full";
 import { ImportNotes } from "@/components/ImportNotes";
@@ -88,6 +89,8 @@ export function Settings() {
         </section>
 
         {localOnly && <Devices />}
+
+        <GoogleAgendaSettings />
 
         {!localOnly && <RejectedChanges />}
         {!localOnly && <GmailSettings />}

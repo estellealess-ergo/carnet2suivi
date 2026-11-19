@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router";
 import { Shell } from "./components/Shell";
 import { AuthProvider, useAuth } from "./lib/auth";
+import { initAgenda } from "./lib/google-agenda";
 import { initPeerSync } from "./lib/peer-sync";
 import { Exchanges } from "./pages/Exchanges";
 import { FamilySend } from "./pages/FamilySend";
@@ -57,6 +58,9 @@ void navigator.storage?.persist?.();
 
 // Liaison directe téléphone ↔ ordinateur, si les appareils ont été reliés.
 void initPeerSync();
+
+// Google Agenda (lecture seule), si la praticienne l'a relié.
+void initAgenda();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
