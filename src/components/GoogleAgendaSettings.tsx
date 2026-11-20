@@ -1,7 +1,8 @@
 import { CalendarCheck, CalendarX, LogOut, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fmtDateTime } from "@/lib/dates";
-import { connectGoogle, disconnectGoogle, refreshOrReconnect, saveClientId, useAgendaState } from "@/lib/google-agenda";
+import { connectGoogle, disconnectGoogle, refreshOrReconnect, saveClientId, setTasksWanted, useAgendaState } from "@/lib/google-agenda";
+import { LIST_TITLE, setFirstName, syncTasks, useTasksSync } from "@/lib/google-tasks";
 import { Button, Field, Input, Modal, toast } from "./ui";
 import { useUnsavedGuard } from "./UnsavedGuard";
 
@@ -68,6 +69,8 @@ export function GoogleAgendaSettings() {
         )}
       </div>
 
+      {s.linked && <TasksSettings />}
+
       <details open={!s.clientId} className="rounded-md border border-rule bg-paper p-3">
         <summary className="cursor-pointer font-semibold">Identifiant OAuth (à faire une seule fois)</summary>
         <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-ink-soft">
@@ -84,6 +87,10 @@ export function GoogleAgendaSettings() {
             JavaScript autorisées », ajoute <code>{window.location.origin}</code> (valable pour l'ordinateur et le téléphone).
           </li>
           <li>Copie l'« ID client » et colle-le ci-dessous.</li>
+          <li>
+            Pour les tâches (facultatif) : active aussi <strong>Google Tasks API</strong> et ajoute l'accès
+            <code className="mx-1">auth/tasks</code> dans « Accès aux données ».
+          </li>
         </ol>
         <p className="mt-2 text-sm text-ink-soft">
           À la première connexion, Google affiche « Application non validée » : c'est normal pour une application à ton
@@ -119,5 +126,61 @@ export function GoogleAgendaSettings() {
       </Modal>
       {guard.dialog}
     </section>
+  );
+}
+
+/** Google Tasks : synchronisation dans les deux sens avec la liste « Carnet de suivi ». */
+function TasksSettings() {
+  const a = useAgendaState();
+  const t = useTasksSync();
+  const toggle = async (on: boolean) => {
+    await setTasksWanted(on);
+    if (on && !a.tasksGranted) {
+      try {
+        // Google demande l'autorisation supplémentaire « Tâches ».
+        await connectGoogle(true);
+        toast("Google Tasks relié");
+      } catch (e) {
+        toast((e as Error).message, "error");
+      }
+    } else if (on) void syncTasks();
+  };
+  return (
+    <div className="mb-4 rounded-md border border-rule bg-paper p-3">
+      <h3 className="mb-1 font-semibold">Tâches (Google Tasks)</h3>
+      <p className="mb-2 text-sm text-ink-soft">
+        Tes tâches, prévisions et « À préparer » vont dans la liste « {LIST_TITLE} » de Google Tasks, et ce que tu y
+        ajoutes ou coches revient dans l'application. Seul le texte de la tâche, sa date et « fait » partent chez Google :
+        jamais le nom de famille d'un patient.
+      </p>
+      <label className="flex items-center gap-2">
+        <input type="checkbox" className="size-4 accent-[var(--color-pen)]" checked={a.tasksWanted} onChange={(e) => void toggle(e.target.checked)} />
+        Synchroniser mes tâches avec Google Tasks
+      </label>
+      {a.tasksWanted && (
+        <>
+          <label className="mt-2 flex items-start gap-2">
+            <input type="checkbox" className="mt-1 size-4 accent-[var(--color-pen)]" checked={t.firstName} onChange={(e) => void setFirstName(e.target.checked)} />
+            <span>
+              Ajouter le prénom du patient (ex. « Milo : À préparer : labyrinthes »)
+              <span className="block text-xs text-ink-soft">Désactivé : la tâche part sans aucun nom. Le nom de famille n'est jamais envoyé.</span>
+            </span>
+          </label>
+          <p className="mt-2 text-sm text-ink-soft">
+            {!a.tasksGranted
+              ? "Accès aux tâches pas encore accordé : reconnecte-toi à Google."
+              : t.running
+                ? "Synchronisation…"
+                : t.lastSync
+                  ? `Dernière synchronisation le ${fmtDateTime(t.lastSync)}${t.summary ? ` · ${t.summary}` : ""}.`
+                  : "Pas encore synchronisé."}
+          </p>
+          {t.error && <p className="text-sm text-late">{t.error}</p>}
+          <Button size="sm" className="mt-2" disabled={t.running} onClick={() => void (a.tasksGranted && a.active ? syncTasks() : connectGoogle(true).catch((e) => toast((e as Error).message, "error")))}>
+            <RefreshCw className={`size-4 ${t.running ? "animate-spin" : ""}`} /> {a.tasksGranted && a.active ? "Synchroniser maintenant" : "Reconnecter"}
+          </Button>
+        </>
+      )}
+    </div>
   );
 }

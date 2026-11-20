@@ -51,5 +51,6 @@ français, en langage simple et non technique. Voir README.md pour l'état des �
   ou copier-coller vers Claude avec pseudonymisation (`copyForClaude` / `pasteFromClaude`).
 - Liaison directe téléphone ↔ ordinateur (`src/lib/peer-sync.ts`) : synchronise `TABLES` + `documents` sans serveur de données, messages chiffrés AES-GCM avec la clé de l'association. Toute nouvelle table locale à partager doit y être prise en compte.
 - Google Agenda : LECTURE SEULE (`calendar.events.readonly`, uniquement des GET), depuis le navigateur ; ne jamais écrire dans l'agenda ni y envoyer d'information clinique. L'ID client OAuth est saisi dans l'app, jamais committé.
+- Google Tasks (`src/lib/google-tasks.ts`, accès `auth/tasks` demandé seulement si activé) : synchro dans les deux sens, UNIQUEMENT dans la liste « Carnet de suivi ». N'envoyer que le texte, la date et fait/à faire ; jamais le nom de famille ; le prénom seulement si le réglage est activé (désactivé par défaut).
 - Ressources du cabinet : documents avec `patient_id = "cabinet"` (`CABINET` dans `import-full.ts`).
 - Documents joints et photos des notes (`note_id`, catégorie `photo`) : table locale `documents` (non synchronisée), incluse dans la sauvegarde chiffrée.

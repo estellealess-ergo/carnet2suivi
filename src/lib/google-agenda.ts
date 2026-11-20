@@ -16,11 +16,13 @@ import { update } from "./repo";
 import type { AgendaEvent, IsoDay, Patient } from "./types";
 
 export const AGENDA_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
+/** Demandé seulement si la synchronisation des tâches est activée. */
+export const TASKS_SCOPE = "https://www.googleapis.com/auth/tasks";
 const TZ = "Europe/Paris";
 /** Lecture : la semaine qui vient (l'accueil en montre 3 jours, Ma journée peut en demander d'autres). */
 export const AGENDA_DAYS = 8;
 
-type Token = { access_token: string; expires_at: number };
+type Token = { access_token: string; expires_at: number; scope?: string };
 
 export interface AgendaState {
   clientId: string | null;
@@ -36,9 +38,12 @@ export interface AgendaState {
   days: string[];
   /** Fiches dont le jour / l'heure habituels viennent d'être mis à jour d'après l'agenda. */
   updatedFiches: string[];
+  /** Synchronisation Google Tasks voulue (réglage) et accès accordé par Google. */
+  tasksWanted: boolean;
+  tasksGranted: boolean;
 }
 
-let state: AgendaState = { clientId: null, linked: false, email: null, active: false, loading: false, lastFetch: null, error: null, days: [], updatedFiches: [] };
+let state: AgendaState = { clientId: null, linked: false, email: null, active: false, loading: false, lastFetch: null, error: null, days: [], updatedFiches: [], tasksWanted: false, tasksGranted: false };
 const listeners = new Set<() => void>();
 function set(p: Partial<AgendaState>) {
   state = { ...state, ...p };
@@ -126,11 +131,11 @@ export async function connectGoogle(firstTime = false): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const client = gis.accounts.oauth2.initTokenClient({
         client_id: clientId,
-        scope: AGENDA_SCOPE,
+        scope: state.tasksWanted ? `${AGENDA_SCOPE} ${TASKS_SCOPE}` : AGENDA_SCOPE,
         callback: (r) => {
           if (r.error || !r.access_token) return reject(new Error(r.error === "access_denied" ? "Connexion refusée." : "La connexion à Google a échoué."));
           if (r.scope && !r.scope.includes("calendar.events.readonly")) return reject(new Error("L'accès à l'agenda n'a pas été autorisé : coche la case Google Agenda."));
-          token = { access_token: r.access_token, expires_at: Date.now() + (r.expires_in ?? 3600) * 1000 };
+          token = { access_token: r.access_token, expires_at: Date.now() + (r.expires_in ?? 3600) * 1000, scope: r.scope };
           resolve();
         },
         error_callback: (e) =>
@@ -140,7 +145,7 @@ export async function connectGoogle(firstTime = false): Promise<void> {
     });
     await setMeta("agenda_linked", true);
     await setMeta("agenda_token", token);
-    set({ linked: true, active: true });
+    set({ linked: true, active: true, tasksGranted: Boolean(token?.scope?.includes("/auth/tasks")) });
     await refreshAgenda();
   } catch (e) {
     set({ error: (e as Error).message });
@@ -161,7 +166,7 @@ export async function disconnectGoogle() {
     }
   }
   await Promise.all([db.agenda_events.clear(), db.meta.bulkDelete(["agenda_linked", "agenda_token", "agenda_email", "agenda_last_fetch", "agenda_days"])]);
-  set({ linked: false, active: false, email: null, lastFetch: null, error: null, days: [], updatedFiches: [] });
+  set({ linked: false, active: false, email: null, lastFetch: null, error: null, days: [], updatedFiches: [], tasksGranted: false });
 }
 
 export async function saveClientId(id: string) {
@@ -252,6 +257,7 @@ async function fetchRange(first: IsoDay, end: IsoDay): Promise<number> {
     set({ lastFetch: at, email: body.summary?.includes("@") ? body.summary : state.email, active: true, days: known });
     const updated = await syncUsualTimes(events);
     if (updated.length) set({ updatedFiches: updated });
+    afterRefresh?.();
     return events.length;
   } catch (e) {
     set({ error: e instanceof TypeError ? "Pas de connexion internet : le dernier planning connu reste affiché." : (e as Error).message });
@@ -301,7 +307,17 @@ export async function initAgenda() {
     getMeta<string[]>("agenda_days"),
   ]);
   token = saved && saved.expires_at > Date.now() ? saved : null;
-  set({ clientId: clientId ?? null, linked: Boolean(linked), email: email ?? null, lastFetch: lastFetch ?? null, active: tokenValid(), days: days ?? [] });
+  const tasksWanted = Boolean(await getMeta<boolean>("gtasks_enabled"));
+  set({
+    clientId: clientId ?? null,
+    linked: Boolean(linked),
+    email: email ?? null,
+    lastFetch: lastFetch ?? null,
+    active: tokenValid(),
+    days: days ?? [],
+    tasksWanted,
+    tasksGranted: Boolean(token?.scope?.includes("/auth/tasks")),
+  });
   if (linked && tokenValid()) void refreshAgenda().catch(() => undefined);
 }
 
@@ -322,6 +338,22 @@ export function clearUpdatedFiches() {
 
 /** L'accès Google est-il valable maintenant (pour lire une autre date sans clic) ? */
 export const agendaTokenValid = () => tokenValid();
+
+/** Jeton d'accès valable (pour Google Tasks), ou null. */
+export const googleAccessToken = () => (tokenValid() ? token!.access_token : null);
+export const googleTokenHasTasks = () => tokenValid() && Boolean(token?.scope?.includes("/auth/tasks"));
+
+/** Active / coupe la synchronisation des tâches (la reconnexion Google ajoute l'accès Tâches). */
+export async function setTasksWanted(on: boolean) {
+  await setMeta("gtasks_enabled", on);
+  set({ tasksWanted: on });
+}
+
+/** Après chaque lecture de l'agenda, les tâches se synchronisent aussi (voir google-tasks.ts). */
+let afterRefresh: (() => void) | null = null;
+export function onAgendaRefreshed(f: () => void) {
+  afterRefresh = f;
+}
 
 /** Noms de l'agenda à ne plus proposer (ex. « Pilates »). */
 export async function getIgnored(): Promise<string[]> {

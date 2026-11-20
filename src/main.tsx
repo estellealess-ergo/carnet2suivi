@@ -9,6 +9,7 @@ import { createBrowserRouter, RouterProvider } from "react-router";
 import { Shell } from "./components/Shell";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { initAgenda } from "./lib/google-agenda";
+import { initTasksSync } from "./lib/google-tasks";
 import { initPeerSync } from "./lib/peer-sync";
 import { Exchanges } from "./pages/Exchanges";
 import { FamilySend } from "./pages/FamilySend";
@@ -61,6 +62,7 @@ void initPeerSync();
 
 // Google Agenda (lecture seule), si la praticienne l'a relié.
 void initAgenda();
+void initTasksSync();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

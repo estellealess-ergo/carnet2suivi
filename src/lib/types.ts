@@ -91,6 +91,8 @@ export interface Forecast extends SyncedRow {
   status: ForecastStatus;
   /** Note dans laquelle la prévision a été reprise. */
   note_id: string | null;
+  /** Tâche correspondante dans Google Tasks (liste « Carnet de suivi »). */
+  google_task_id?: string | null;
 }
 
 export type TaskStatus = "a_faire" | "fait";
@@ -102,6 +104,8 @@ export interface Task extends SyncedRow {
   status: TaskStatus;
   urgent: boolean;
   details: string | null;
+  /** Tâche correspondante dans Google Tasks (liste « Carnet de suivi »). */
+  google_task_id?: string | null;
 }
 
 /** Bilan. */
