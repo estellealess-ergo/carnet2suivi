@@ -2,7 +2,7 @@ import { Users, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { PinnedInfo } from "@/components/bits";
-import { NoteEditor } from "@/components/NoteEditor";
+import { SessionNoteEditor } from "@/components/NoteEditor";
 import { MAX_SIDE_BY_SIDE, PatientMultiPicker } from "@/components/PatientMultiPicker";
 import { Button, Modal, PageHeader, cx } from "@/components/ui";
 import { fullName } from "@/lib/labels";
@@ -90,7 +90,7 @@ function Column({ patient, onClose, defaultDate, first }: { patient: Patient | n
       <div className="mb-3">
         <PinnedInfo patient={patient} editable={false} />
       </div>
-      <NoteEditor patient={patient} onDone={onClose} closeRef={closeRef} compact defaultDate={defaultDate} autoFocus={first} />
+      <SessionNoteEditor patient={patient} onDone={onClose} closeRef={closeRef} compact defaultDate={defaultDate} autoFocus={first} />
     </section>
   );
 }

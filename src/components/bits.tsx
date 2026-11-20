@@ -1,5 +1,6 @@
 import { Check, Pencil, Pin, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router";
 import { fmtDay, relativeDay } from "@/lib/dates";
 import { create, remove, update } from "@/lib/repo";
 import type { Forecast, Patient, Task } from "@/lib/types";
@@ -137,6 +138,18 @@ export function ForecastRow({ f, patientName }: { f: Forecast; patientName?: str
   }
   return (
     <li className="flex items-start gap-2 py-2">
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={false}
+        aria-label="Marquer la prévision comme faite"
+        title="C'est fait"
+        onClick={async () => {
+          await update("forecasts", f.id, { status: "faite" });
+          toast("Prévision faite");
+        }}
+        className="mt-0.5 grid size-6 shrink-0 place-items-center rounded border-2 border-rule hover:border-pen"
+      />
       <div className="min-w-0 flex-1">
         <p>
           {patientName && <strong>{patientName} : </strong>}
@@ -279,5 +292,58 @@ function TaskDate({ t }: { t: Task }) {
     <button type="button" onClick={() => setEditing(true)} title="Changer la date">
       <DueLabel day={t.due_date} done={t.status === "fait"} />
     </button>
+  );
+}
+
+/**
+ * Prévision sur l'accueil : cocher quand c'est fait, ou changer la date d'un clic.
+ * Une prévision faite reste dans la fiche (onglet Prévisions) et peut être remise.
+ */
+export function HomeForecastRow({ f, patientName, patientId, hideDate }: { f: Forecast; patientName: string; patientId: string; hideDate?: boolean }) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <li className="flex items-start gap-3 py-2">
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={false}
+        aria-label="Marquer la prévision comme faite"
+        title="C'est fait"
+        onClick={async () => {
+          await update("forecasts", f.id, { status: "faite" });
+          toast("Prévision faite. Tu peux la remettre depuis la fiche du patient.");
+        }}
+        className="mt-0.5 grid size-6 shrink-0 place-items-center rounded border-2 border-rule hover:border-pen"
+      />
+      <div className="min-w-0 flex-1">
+        <p>
+          <Link to={`/patients/${patientId}?onglet=previsions`} className="font-semibold hover:underline">
+            {patientName}
+          </Link>{" "}
+          : {f.content}
+        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <Pill tone="pen">{/^À préparer\s*:/i.test(f.content) ? "À préparer" : "Prévision"}</Pill>
+          {editing ? (
+            <Input
+              type="date"
+              autoFocus
+              className="h-8 w-40"
+              defaultValue={f.planned_date ?? ""}
+              aria-label="Date prévue"
+              onBlur={(e) => {
+                if (e.target.value && e.target.value !== f.planned_date) void update("forecasts", f.id, { planned_date: e.target.value });
+                setEditing(false);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            />
+          ) : (
+            <button type="button" onClick={() => setEditing(true)} title="Changer la date" className="inline-flex items-center gap-1">
+              {hideDate ? <span className="text-xs text-ink-soft underline">changer la date</span> : <DueLabel day={f.planned_date} />}
+            </button>
+          )}
+        </div>
+      </div>
+    </li>
   );
 }

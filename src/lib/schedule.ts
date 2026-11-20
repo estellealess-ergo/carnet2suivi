@@ -1,4 +1,4 @@
-import { parseDay, weekdayOf } from "./dates";
+import { addDays, parseDay, weekdayOf } from "./dates";
 import type { DayChange, IsoDay, Patient } from "./types";
 
 /** Numéro de semaine ISO (lundi = début de semaine). */
@@ -66,4 +66,19 @@ export function groupsOf(entries: DayEntry[]): DayGroup[] {
 /** Adresse des notes côte à côte d'un groupe (six au maximum), datées du jour de la séance. */
 export function groupNotesUrl(g: DayGroup, day: string, max = 6) {
   return `/notes?p=${g.entries.slice(0, max).map((e) => e.patient.id).join(",")}&date=${day}`;
+}
+
+/**
+ * Prochaine séance habituelle après un jour donné (jour de suivi de la fiche, une semaine sur deux
+ * si besoin). Sert de suggestion : la praticienne choisit toujours la date elle-même.
+ */
+export function nextUsualSession(p: Pick<Patient, "usual_day" | "frequency" | "week_parity">, after: IsoDay): IsoDay | null {
+  if (!p.usual_day || p.frequency === "ponctuel") return null;
+  for (let n = 1; n <= 21; n++) {
+    const d = addDays(after, n);
+    if (weekdayOf(d) !== p.usual_day) continue;
+    if (p.frequency === "bimensuel" && p.week_parity && weekParity(d) !== p.week_parity) continue;
+    return d;
+  }
+  return null;
 }

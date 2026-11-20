@@ -81,7 +81,7 @@ export interface NoteVersion extends SyncedRow {
   saved_at: Iso;
 }
 
-export type ForecastStatus = "a_faire" | "transferee" | "abandonnee";
+export type ForecastStatus = "a_faire" | "transferee" | "abandonnee" | "faite";
 
 /** Prévision : ce qui est prévu pour une prochaine séance. */
 export interface Forecast extends SyncedRow {

@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { AgendaDay, AgendaStatus, useAgendaOn } from "@/components/AgendaBlock";
-import { DueLabel, TaskRow } from "@/components/bits";
-import { PageHeader, Pill } from "@/components/ui";
+import { HomeForecastRow, TaskRow } from "@/components/bits";
+import { PageHeader } from "@/components/ui";
 import { useLiveQuery } from "dexie-react-hooks";
 import { bucketByHorizon, fmtLongDay, localDay, relativeDay } from "@/lib/dates";
 import { db } from "@/lib/db";
@@ -108,18 +108,7 @@ function ItemList({
         i.kind === "task" ? (
           <TaskRow key={i.t.id} t={i.t} hideDate={hideDate} patientName={i.t.patient_id ? fullName(byId.get(i.t.patient_id)) : undefined} />
         ) : (
-          <li key={i.f.id} className="py-2 pl-9">
-            <p>
-              <Link to={`/patients/${i.f.patient_id}?onglet=previsions`} className="font-semibold hover:underline">
-                {fullName(byId.get(i.f.patient_id))}
-              </Link>{" "}
-              : {i.f.content}
-            </p>
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              <Pill tone="pen">Prévision</Pill>
-              {!hideDate && <DueLabel day={i.f.planned_date} />}
-            </div>
-          </li>
+          <HomeForecastRow key={i.f.id} f={i.f} patientId={i.f.patient_id} patientName={fullName(byId.get(i.f.patient_id))} hideDate={hideDate} />
         ),
       )}
     </ul>

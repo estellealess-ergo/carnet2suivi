@@ -10,14 +10,26 @@ import { NotePhotoStrip } from "./NotePhotos";
  * En ouvrant une note : rappel de la dernière séance (Fait / Observé / À reprendre),
  * avec des flèches pour remonter aux séances précédentes.
  */
-export function LastSessionRecap({ patientId, day, currentId, compact }: { patientId: string; day: string; currentId?: string; compact?: boolean }) {
+export function LastSessionRecap({
+  patientId,
+  day,
+  currentId,
+  compact,
+  defaultOpen = true,
+}: {
+  patientId: string;
+  day: string;
+  currentId?: string;
+  compact?: boolean;
+  defaultOpen?: boolean;
+}) {
   const notes = useNotes(patientId);
   const previous = useMemo(
     () => notes.filter((n) => n.kind === "seance" && n.id !== currentId && (!day || n.note_date <= day)),
     [notes, currentId, day],
   );
   const [i, setI] = useState(0);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(defaultOpen);
   if (!previous.length) return null;
   const n = previous[Math.min(i, previous.length - 1)]!;
   const p = noteParts(n.content_html);
@@ -32,10 +44,10 @@ export function LastSessionRecap({ patientId, day, currentId, compact }: { patie
       <div className="flex items-center gap-1.5 px-3 py-2">
         <button type="button" onClick={() => setOpen(!open)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm font-semibold" aria-expanded={open}>
           <History className="size-4 shrink-0 text-pen" aria-hidden />
-          <span className="truncate">
-            {i === 0 ? "Dernière séance" : "Séance"} du {fmtDay(n.note_date)}
+          <span className="min-w-0">
+            {i === 0 ? "Dernière séance" : "Séance"} <span className="whitespace-nowrap">du {fmtDay(n.note_date)}</span>
+            <span className="ml-1 whitespace-nowrap font-normal text-ink-soft">{open ? "· masquer" : "· afficher"}</span>
           </span>
-          <span className="shrink-0 font-normal text-ink-soft">{open ? "· masquer" : "· afficher"}</span>
         </button>
         <button
           type="button"

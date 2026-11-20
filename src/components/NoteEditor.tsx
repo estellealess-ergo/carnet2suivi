@@ -1,4 +1,7 @@
-import { CalendarClock, ClipboardPaste, Copy, History, MessageCircleQuestion, Sparkles, Undo2 } from "lucide-react";
+import { CalendarClock, Camera, ClipboardPaste, Copy, History, ListPlus, MessageCircleQuestion, PackageCheck, Plus, Sparkles, Tags, Target, Undo2, X } from "lucide-react";
+import { useLiveQuery } from "dexie-react-hooks";
+import { matchName, parseTitle } from "@/lib/agenda-match";
+import { nextUsualSession } from "@/lib/schedule";
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { askAssistant, assistantAvailable, copyForClaude, pasteFromClaude } from "@/lib/assistant";
 import { useLocalAi } from "@/lib/local-ai";
@@ -6,7 +9,7 @@ import { fmtDateTime, fmtDay, localDay } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { htmlToText, isEmptyHtml, textToHtml } from "@/lib/html";
 import { fullName } from "@/lib/labels";
-import { useForecasts, useGoals, useNoteVersions } from "@/lib/queries";
+import { useForecasts, useGoals, useNoteVersions, usePatients } from "@/lib/queries";
 import { create, update } from "@/lib/repo";
 import type { Forecast, Note, NoteKind, Patient, PendingPhoto } from "@/lib/types";
 import { NotePhotoPicker, attachPhotos } from "./NotePhotos";
@@ -34,7 +37,10 @@ export function NoteEditor({
   closeRef,
   defaultDate,
   autoFocus = true,
+  reopened = false,
 }: {
+  /** La note du jour existait déjà et a été rouverte (au lieu d'en créer une nouvelle). */
+  reopened?: boolean;
   /** Notes côte à côte : seule la première colonne prend le curseur (sinon la page saute à la dernière). */
   autoFocus?: boolean;
   patient: Patient;
@@ -65,6 +71,11 @@ export function NoteEditor({
   const [transfers, setTransfers] = useState<string[]>([]);
   /** Photos prises pendant la saisie : rattachées à la note à l'enregistrement. */
   const [photos, setPhotos] = useState<PendingPhoto[]>([]);
+  /** « À préparer pour la prochaine séance » : prévisions créées à l'enregistrement. */
+  const [prep, setPrep] = useState<PrepItem[]>([]);
+  /** Outil ouvert sous la barre (mots-clés pendant la séance pour une nouvelle note). */
+  // Côte à côte : outils fermés pour garder la place d'écrire.
+  const [panel, setPanel] = useState<Panel>(kind === "seance" && !note && !compact ? "mots" : null);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<{ html: string; saved_at: string; note_date: string | null; jots?: string[]; photos?: PendingPhoto[] } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -76,6 +87,7 @@ export function NoteEditor({
     day !== initialDate ||
     transfers.length > 0 ||
     photos.length > 0 ||
+    prep.length > 0 ||
     jots.join("\n") !== initialJots.join("\n") ||
     goalIds.join() !== initialGoalIds.join();
 
@@ -106,6 +118,15 @@ export function NoteEditor({
 
   const forecasts = useForecasts(patient.id).filter((f) => f.status === "a_faire" && !transfers.includes(f.id));
 
+  // Prochaine séance proposée pour « À préparer » : d'abord l'agenda Google, sinon le jour habituel.
+  const allPatients = usePatients();
+  const agendaNext = useLiveQuery(async () => {
+    if (!day || kind !== "seance") return null;
+    const evs = (await db.agenda_events.where("day").above(day).toArray()).sort((a, b) => (a.day + a.time).localeCompare(b.day + b.time));
+    return evs.find((e) => parseTitle(e.title).names.some((n) => matchName(n, allPatients).patient?.id === patient.id))?.day ?? null;
+  }, [day, kind, patient.id, allPatients]);
+  const nextDate = agendaNext ?? (day ? nextUsualSession(patient, day) : null);
+
   const save = useCallback(async (leaving = false): Promise<boolean> => {
     if (!day) {
       toast("Choisis la date de la note avant d'enregistrer.", "error");
@@ -128,6 +149,7 @@ export function NoteEditor({
         : await create("notes", { patient_id: patient.id, kind, note_date: day, content_html: content, raw_text: raw, goal_ids: goalIds });
       for (const id of transfers) await update("forecasts", id, { status: "transferee", note_id: saved.id });
       if (photos.length) await attachPhotos(photos, patient.id, saved.id, day);
+      for (const it of prep) await create("forecasts", { patient_id: patient.id, content: `À préparer : ${it.content}`, planned_date: it.date, status: "a_faire", note_id: null });
       savedRef.current = true;
       releaseRef.current?.();
       await db.drafts.delete(draftKey);
@@ -138,7 +160,7 @@ export function NoteEditor({
       toast((e as Error).message, "error");
       return false;
     }
-  }, [day, html, jots, goalIds, photos, note, patient.id, kind, transfers, draftKey, onDone]);
+  }, [day, html, jots, goalIds, photos, prep, note, patient.id, kind, transfers, draftKey, onDone]);
 
   const label = `${kind === "seance" ? "Note de séance" : "Note"} — ${fullName(patient)}`;
   const guard = useUnsavedGuard({ dirty, label, onSave: save });
@@ -183,6 +205,50 @@ export function NoteEditor({
   const canAssist = assistantAvailable();
   const empty = isEmptyHtml(html) && jots.length === 0;
 
+  const recap = kind === "seance" ? <LastSessionRecap patientId={patient.id} day={day} currentId={note?.id} compact={compact} defaultOpen={!compact} /> : null;
+
+  const toolBtn = (id: Panel, label: string, Icon: typeof Tags, count?: number) => (
+    <button
+      type="button"
+      aria-expanded={panel === id}
+      onClick={() => setPanel(panel === id ? null : id)}
+      className={cx(
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold",
+        panel === id ? "border-pen bg-pen text-white" : "border-rule bg-sheet text-ink hover:border-pen",
+      )}
+    >
+      <Icon className="size-4" aria-hidden /> {label}
+      {count ? <span className={cx("rounded-full px-1.5 text-xs", panel === id ? "bg-white/25" : "bg-pen-soft text-pen")}>{count}</span> : null}
+    </button>
+  );
+
+  const side = (
+    <>
+      {forecasts.length > 0 && (
+        <section className="rounded-md border border-rule bg-sheet p-3">
+          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+            <CalendarClock className="size-4 text-pen" aria-hidden /> Prévu pour cette séance
+          </h3>
+          <ul className="space-y-2">
+            {forecasts.map((f) => (
+              <li key={f.id} className="text-sm">
+                <p>
+                  {f.content} <span className="text-ink-soft">({fmtDay(f.planned_date)})</span>
+                </p>
+                <button type="button" className="text-xs font-semibold text-pen underline" onClick={() => takeForecast(f)}>
+                  Reprendre dans la note
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {kind === "seance" && (
+        <PrepareNext items={prep} onChange={setPrep} suggestion={nextDate} />
+      )}
+    </>
+  );
+
   return (
     <div className={cx("flex flex-col", compact ? "h-full" : "")}>
       {draft && (
@@ -215,138 +281,167 @@ export function NoteEditor({
           </Button>
         </div>
       )}
+      {reopened && (
+        <p className="mb-3 rounded-md bg-pen-soft px-3 py-2 text-sm">
+          La note de ce jour existe déjà : tu la complètes ici, sans créer de nouvelle note.
+        </p>
+      )}
 
-      <div className="mb-3 flex flex-wrap items-end gap-3">
+      {/* En-tête : date à gauche, rédaction (assistant, Claude, versions) à droite. */}
+      <div className="mb-3 flex flex-wrap items-end gap-2">
         <Field label="Date" className="w-44">
           <Input type="date" value={day} onChange={(e) => setDay(e.target.value)} required />
         </Field>
-        {canAssist && (
-          <Button
-            onClick={cleanUp}
-            disabled={busy || empty}
-            title="Corrige et range la note en trois rubriques : Fait, Observé, À reprendre"
-          >
-            <Sparkles className="size-4" />
-            {busy ? "Mise au propre…" : "Mettre au propre"}
-          </Button>
-        )}
-        {(
-          <>
-            <Button
-              variant="ghost"
-              disabled={empty}
-              title="Copie la note (nom du patient masqué) avec les consignes, à coller dans Claude : rédaction plus riche que l'assistant de l'ordinateur"
-              onClick={async () => {
-                await copyForClaude("note", sourceText(), patient);
-                toast("Copié. Colle-le dans Claude, puis copie sa réponse et clique sur « Coller la réponse ».");
-              }}
-            >
-              <Copy className="size-4" /> Copier pour Claude
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          {canAssist && (
+            <Button size="sm" onClick={cleanUp} disabled={busy || empty} title="Rédige la note complète en trois rubriques : Fait, Observé, À reprendre">
+              <Sparkles className="size-4" />
+              {busy ? "Mise au propre…" : "Mettre au propre"}
             </Button>
+          )}
+          <details className="relative">
+            <summary className="inline-flex h-8 cursor-pointer list-none items-center gap-1.5 rounded-md border border-rule px-2.5 text-sm font-semibold hover:border-pen">
+              <Copy className="size-4" aria-hidden /> Claude
+            </summary>
+            <div className="absolute right-0 z-20 mt-1 w-64 space-y-1 rounded-md border border-rule bg-sheet p-2 shadow-lg">
+              <p className="px-1 pb-1 text-xs text-ink-soft">Rédaction plus riche, nom de l'enfant masqué.</p>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="w-full justify-start"
+                disabled={empty}
+                onClick={async () => {
+                  await copyForClaude("note", sourceText(), patient);
+                  toast("Copié. Colle-le dans Claude, puis copie sa réponse et clique sur « Coller la réponse ».");
+                }}
+              >
+                <Copy className="size-4" /> Copier pour Claude
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="w-full justify-start"
+                onClick={async () => {
+                  try {
+                    const out = await pasteFromClaude(patient);
+                    setBeforeCleanup(html);
+                    setHtml(textToHtml(out));
+                    toast("Réponse reprise dans la note. Relis-la avant d'enregistrer.");
+                  } catch (e) {
+                    toast((e as Error).message, "error");
+                  }
+                }}
+              >
+                <ClipboardPaste className="size-4" /> Coller la réponse
+              </Button>
+            </div>
+          </details>
+          {beforeCleanup !== null && (
             <Button
+              size="sm"
               variant="ghost"
-              disabled={empty}
-              onClick={async () => {
-                try {
-                  const out = await pasteFromClaude(patient);
-                  setBeforeCleanup(html);
-                  setHtml(textToHtml(out));
-                  toast("Réponse reprise dans la note. Relis-la avant d'enregistrer.");
-                } catch (e) {
-                  toast((e as Error).message, "error");
-                }
+              onClick={() => {
+                setHtml(beforeCleanup);
+                setBeforeCleanup(null);
               }}
+              title="Revenir au texte avant la mise au propre"
             >
-              <ClipboardPaste className="size-4" /> Coller la réponse
+              <Undo2 className="size-4" /> Texte d'origine
             </Button>
-          </>
-        )}
-        {beforeCleanup !== null && (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setHtml(beforeCleanup);
-              setBeforeCleanup(null);
-            }}
-            title="Revenir au texte avant la mise au propre"
-          >
-            <Undo2 className="size-4" /> Texte d'origine
-          </Button>
-        )}
-        {note && (
-          <Button variant="ghost" onClick={() => setShowHistory(true)}>
-            <History className="size-4" /> Versions
-          </Button>
-        )}
+          )}
+          {note && (
+            <Button size="sm" variant="ghost" onClick={() => setShowHistory(true)}>
+              <History className="size-4" /> Versions
+            </Button>
+          )}
+        </div>
       </div>
 
-      {kind === "seance" && <LastSessionRecap patientId={patient.id} day={day} currentId={note?.id} compact={compact} />}
+      <div className={cx(compact ? "flex min-h-0 flex-1 flex-col" : "lg:grid lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-start lg:gap-5")}>
+        <div className="min-w-0">
+          {/* Sur téléphone et en côte à côte, le rappel de la dernière séance reste au-dessus du texte. */}
+          {recap && <div className={cx(!compact && "lg:hidden")}>{recap}</div>}
 
-      {forecasts.length > 0 && (
-        <div className="mb-3 rounded-md border border-rule bg-sheet p-3">
-          <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
-            <CalendarClock className="size-4 text-pen" /> Prévu pour ce patient
-          </div>
-          <ul className="space-y-1.5">
-            {forecasts.map((f) => (
-              <li key={f.id} className="flex items-start gap-2 text-sm">
-                <span className="flex-1">
-                  {f.content}
-                  <span className="ml-1 text-ink-soft">({fmtDay(f.planned_date)})</span>
-                </span>
-                <Button size="sm" variant="ghost" onClick={() => takeForecast(f)}>
-                  Reprendre dans la note
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <NotePhotoPicker
-        noteId={note?.id}
-        pending={photos}
-        onAdd={addPhotos}
-        onRemovePending={(id) => setPhotos((ps) => ps.filter((p) => p.id !== id))}
-        label={label}
-      />
-
-      {kind === "seance" && (
-        <div className="mb-3 space-y-3">
-          <ActivityPicker patientId={patient.id} onInsert={(r, t) => setHtml((h) => insertInRubric(h, r, t))} />
-          <QuickCapture jots={jots} onChange={setJots} />
-          {goals.length > 0 && (
-            <div>
-              <p className="mb-1 text-sm font-semibold">Objectifs travaillés</p>
-              <div className="flex flex-wrap gap-1.5">
-                {goals.map((g) => {
-                  const on = goalIds.includes(g.id);
-                  return (
-                    <button
-                      key={g.id}
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() => setGoalIds((ids) => (on ? ids.filter((x) => x !== g.id) : [...ids, g.id]))}
-                      className={cx(
-                        "rounded-full border px-3 py-1 text-left text-sm",
-                        on ? "border-pen bg-pen-soft font-semibold text-pen" : "border-rule text-ink-soft hover:border-pen",
-                      )}
-                    >
-                      {g.title}
-                    </button>
-                  );
-                })}
-              </div>
+          {kind === "seance" && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {toolBtn("mots", "Mots-clés", Tags, jots.length)}
+              {toolBtn("activites", "Activités", ListPlus)}
+              {toolBtn("photos", "Photos", Camera, photos.length)}
+              {goals.length > 0 && toolBtn("objectifs", "Objectifs", Target, goalIds.length)}
+              <button
+                type="button"
+                onClick={() => setDebrief(true)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-pen bg-pen-soft px-3 py-1.5 text-sm font-semibold text-pen hover:bg-pen hover:text-white"
+              >
+                <MessageCircleQuestion className="size-4" aria-hidden /> Débrief
+              </button>
             </div>
           )}
-          <Button variant="primary" onClick={() => setDebrief(true)}>
-            <MessageCircleQuestion className="size-4" /> Débrief de la séance
-          </Button>
-        </div>
-      )}
+          {kind !== "seance" && (
+            <div className="mb-2">{toolBtn("photos", "Photos", Camera, photos.length)}</div>
+          )}
 
-      <div className={cx(compact && "min-h-0 flex-1 overflow-y-auto")}>
-        <RichEditor value={html} onChange={setHtml} autoFocus={autoFocus && !note} minHeight={compact ? "16rem" : "14rem"} placeholder={kind === "seance" ? "Fait, Observé, À reprendre… Utilise le débrief ou écris directement." : "Écrire ou dicter…"} />
+          {panel && (
+            <div className="mb-3 rounded-md border border-rule bg-paper p-3">
+              {panel === "mots" && <QuickCapture jots={jots} onChange={setJots} />}
+              {panel === "activites" && <ActivityPicker patientId={patient.id} onInsert={(r, t) => setHtml((h) => insertInRubric(h, r, t))} />}
+              {panel === "photos" && (
+                <NotePhotoPicker
+                  noteId={note?.id}
+                  pending={photos}
+                  onAdd={addPhotos}
+                  onRemovePending={(id) => setPhotos((ps) => ps.filter((p) => p.id !== id))}
+                  label={label}
+                />
+              )}
+              {panel === "objectifs" && (
+                <div>
+                  <p className="mb-1 text-sm text-ink-soft">Objectifs travaillés pendant cette séance :</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {goals.map((g) => {
+                      const on = goalIds.includes(g.id);
+                      return (
+                        <button
+                          key={g.id}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => setGoalIds((ids) => (on ? ids.filter((x) => x !== g.id) : [...ids, g.id]))}
+                          className={cx(
+                            "rounded-full border px-3 py-1 text-left text-sm",
+                            on ? "border-pen bg-pen-soft font-semibold text-pen" : "border-rule text-ink-soft hover:border-pen",
+                          )}
+                        >
+                          {g.title}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className={cx(compact && "min-h-0 flex-1 overflow-y-auto")}>
+            <RichEditor
+              value={html}
+              onChange={setHtml}
+              autoFocus={autoFocus && !note}
+              minHeight={compact ? "16rem" : "18rem"}
+              placeholder={kind === "seance" ? "Fait, Observé, À reprendre… Écris, dicte, ou utilise le débrief." : "Écrire ou dicter…"}
+            />
+          </div>
+
+          {/* Téléphone et côte à côte : prévisions et « à préparer » sous le texte. */}
+          <div className={cx("mt-3 space-y-3", !compact && "lg:hidden")}>{side}</div>
+        </div>
+
+        {/* Ordinateur : colonne d'infos à droite du texte. */}
+        {!compact && (
+          <aside className="hidden space-y-3 lg:block">
+            {recap}
+            {side}
+          </aside>
+        )}
       </div>
 
       {/* Barre collée en bas : reste visible même avec un texte très long sur téléphone. */}
@@ -383,6 +478,65 @@ export function NoteEditor({
         />
       )}
     </div>
+  );
+}
+
+type PrepItem = { content: string; date: string };
+type Panel = "mots" | "activites" | "photos" | "objectifs" | null;
+
+/**
+ * « À préparer pour la prochaine séance » : chaque ligne devient une prévision, affichée sur
+ * l'accueil le jour choisi. La date est proposée (prochaine séance habituelle), jamais imposée.
+ */
+function PrepareNext({ items, onChange, suggestion }: { items: PrepItem[]; onChange: (i: PrepItem[]) => void; suggestion: string | null }) {
+  const [text, setText] = useState("");
+  const [date, setDate] = useState("");
+  const add = () => {
+    if (!text.trim()) return;
+    if (!date) return toast("Choisis la date de la prochaine séance.", "error");
+    onChange([...items, { content: text.trim(), date }]);
+    setText("");
+  };
+  return (
+    <section className="rounded-md border border-rule bg-sheet p-3">
+      <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold">
+        <PackageCheck className="size-4 text-pen" aria-hidden /> À préparer pour la prochaine séance
+      </h3>
+      {items.length > 0 && (
+        <ul className="mb-2 space-y-1 text-sm">
+          {items.map((it, i) => (
+            <li key={i} className="flex items-start gap-1.5">
+              <span className="flex-1">
+                {it.content} <span className="text-ink-soft">({fmtDay(it.date)})</span>
+              </span>
+              <button type="button" aria-label="Retirer" className="text-ink-soft hover:text-late" onClick={() => onChange(items.filter((_, j) => j !== i))}>
+                <X className="size-4" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())}
+        placeholder="Ex. imprimer les labyrinthes niveau 3"
+        aria-label="À préparer"
+        className="mb-2"
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-9 w-40" aria-label="Date de la prochaine séance" />
+        {suggestion && date !== suggestion && (
+          <button type="button" className="text-xs font-semibold text-pen underline" onClick={() => setDate(suggestion)}>
+            Prochaine séance : {fmtDay(suggestion)}
+          </button>
+        )}
+        <Button size="sm" onClick={add} disabled={!text.trim()}>
+          <Plus className="size-4" /> Ajouter
+        </Button>
+      </div>
+      <p className="mt-1 text-xs text-ink-soft">Enregistré avec la note ; apparaît sur l'accueil le jour choisi.</p>
+    </section>
   );
 }
 
@@ -445,6 +599,36 @@ export function sanitize(html: string): string {
   return doc.body.innerHTML;
 }
 
+/**
+ * Note de séance d'un jour : si elle existe déjà (même patient, même date), elle est rouverte
+ * pour être complétée, au lieu de créer une deuxième note. Le choix est fait une seule fois,
+ * à l'ouverture.
+ */
+export function useSameDayNote(patientId: string | undefined, day: string, enabled: boolean): { ready: boolean; note: Note | null } {
+  const found = useLiveQuery(
+    async () =>
+      enabled && patientId
+        ? ((await db.notes.where("note_date").equals(day).toArray()).find((n) => n.patient_id === patientId && n.kind === "seance" && !n.deleted_at) ?? null)
+        : null,
+    [patientId, day, enabled],
+  );
+  const [frozen, setFrozen] = useState<{ key: string; note: Note | null } | null>(null);
+  const key = `${patientId}|${day}|${enabled}`;
+  useEffect(() => {
+    if (found !== undefined && frozen?.key !== key) setFrozen({ key, note: found });
+  }, [found, frozen?.key, key]);
+  if (!enabled) return { ready: true, note: null };
+  return frozen?.key === key ? { ready: true, note: frozen.note } : { ready: false, note: null };
+}
+
+/** NoteEditor qui rouvre la note du jour si elle existe déjà. */
+export function SessionNoteEditor(props: Parameters<typeof NoteEditor>[0]) {
+  const day = props.defaultDate ?? localDay();
+  const { ready, note } = useSameDayNote(props.patient.id, day, !props.note && (props.kind ?? "seance") === "seance");
+  if (!ready) return <p className="py-6 text-center text-ink-soft">Ouverture…</p>;
+  return <NoteEditor {...props} note={props.note ?? note} reopened={!props.note && note !== null} key={note?.id ?? "nouvelle"} />;
+}
+
 /** Note dans une fenêtre : la croix et Échap passent par « Enregistrer avant de fermer ? ». */
 export function NoteModal({
   patient,
@@ -464,8 +648,8 @@ export function NoteModal({
     ? `${note ? "Modifier la note" : kind === "seance" ? "Note de séance" : "Note générale"} — ${fullName(patient)}`
     : "";
   return (
-    <Modal open={patient !== null} onClose={() => closeRef.current?.()} title={title} wide>
-      {patient && <NoteEditor patient={patient} note={note} kind={kind} onDone={onDone} closeRef={closeRef} defaultDate={defaultDate} />}
+    <Modal open={patient !== null} onClose={() => closeRef.current?.()} title={title} wide={kind === "seance" ? "xl" : true}>
+      {patient && <SessionNoteEditor patient={patient} note={note} kind={kind} onDone={onDone} closeRef={closeRef} defaultDate={defaultDate} />}
     </Modal>
   );
 }

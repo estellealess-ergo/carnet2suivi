@@ -299,7 +299,7 @@ function ForecastsTab({ patient }: { patient: Patient }) {
           <ul className="mt-2 divide-y divide-rule">
             {past.map((f) => (
               <li key={f.id} className="flex flex-wrap items-center gap-2 py-2 text-ink-soft">
-                <Pill>{f.status === "transferee" ? "Reprise dans une note" : "Retirée"}</Pill>
+                <Pill>{f.status === "transferee" ? "Reprise dans une note" : f.status === "faite" ? "Faite" : "Retirée"}</Pill>
                 <span className="flex-1">{f.content}</span>
                 <Button size="sm" variant="ghost" onClick={() => void update("forecasts", f.id, { status: "a_faire", note_id: null })}>
                   <Undo2 className="size-4" /> Remettre en prévision

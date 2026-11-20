@@ -142,7 +142,8 @@ export function Modal({
   onClose: () => void;
   title: string;
   children: ReactNode;
-  wide?: boolean;
+  /** true : moyenne ; « xl » : large (note de séance avec sa colonne d'infos). */
+  wide?: boolean | "xl";
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -170,7 +171,7 @@ export function Modal({
       }}
       className={cx(
         "m-auto w-[calc(100%-1.5rem)] rounded-lg bg-sheet p-0 text-ink shadow-xl backdrop:bg-ink/30",
-        wide ? "max-w-3xl" : "max-w-lg",
+        wide === "xl" ? "max-w-5xl" : wide ? "max-w-3xl" : "max-w-lg",
       )}
     >
       {open && (
