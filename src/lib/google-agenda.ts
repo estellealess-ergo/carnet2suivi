@@ -41,9 +41,11 @@ export interface AgendaState {
   /** Synchronisation Google Tasks voulue (réglage) et accès accordé par Google. */
   tasksWanted: boolean;
   tasksGranted: boolean;
+  /** Bilan de la dernière mise à jour des horaires des fiches d'après l'agenda. */
+  hours: { updated: string[]; same: number; several: string[] } | null;
 }
 
-let state: AgendaState = { clientId: null, linked: false, email: null, active: false, loading: false, lastFetch: null, error: null, days: [], updatedFiches: [], tasksWanted: false, tasksGranted: false };
+let state: AgendaState = { clientId: null, linked: false, email: null, active: false, loading: false, lastFetch: null, error: null, days: [], updatedFiches: [], tasksWanted: false, tasksGranted: false, hours: null };
 const listeners = new Set<() => void>();
 function set(p: Partial<AgendaState>) {
   state = { ...state, ...p };
@@ -121,8 +123,9 @@ function loadGis(): Promise<Gis> {
   return gisLoading;
 }
 
-/** Ouvre la fenêtre Google (doit être appelé depuis un clic). */
-export async function connectGoogle(firstTime = false): Promise<void> {
+/** Ouvre la fenêtre Google (doit être appelé depuis un clic). `silent` : renouvellement automatique,
+ * sans message d'erreur affiché si la fenêtre est bloquée. */
+export async function connectGoogle(firstTime = false, silent = false): Promise<void> {
   const clientId = state.clientId;
   if (!clientId) throw new Error("Colle d'abord l'identifiant OAuth (ID client).");
   set({ error: null, loading: true });
@@ -148,11 +151,62 @@ export async function connectGoogle(firstTime = false): Promise<void> {
     set({ linked: true, active: true, tasksGranted: Boolean(token?.scope?.includes("/auth/tasks")) });
     await refreshAgenda();
   } catch (e) {
-    set({ error: (e as Error).message });
+    if (!silent) set({ error: (e as Error).message });
     throw e;
   } finally {
     set({ loading: false });
   }
+}
+
+/* ------------------------------------------------------------------ automatique */
+
+/**
+ * Google donne un accès d'une heure, sans moyen de le prolonger en arrière-plan : le navigateur
+ * n'autorise la fenêtre Google qu'après un geste. On renouvelle donc l'accès au premier clic
+ * ou toucher dans l'app (hors zone de saisie) ; la fenêtre Google s'ouvre et se referme seule.
+ * Tant que l'accès est valable, l'agenda (et les tâches) sont relus régulièrement, et dès que
+ * le wifi revient ou que l'app revient au premier plan.
+ */
+const REFRESH_EVERY = 10 * 60 * 1000;
+const RENEW_BEFORE = 5 * 60 * 1000;
+let renewArmed = false;
+let lastAuto = 0;
+
+const typingTarget = (t: EventTarget | null) =>
+  t instanceof Element && Boolean(t.closest("input, textarea, select, [contenteditable=''], [contenteditable='true'], .ProseMirror"));
+
+function armRenew() {
+  if (renewArmed || !state.linked || !state.clientId || !state.email || state.loading) return;
+  renewArmed = true;
+  const onTap = (ev: Event) => {
+    if (typingTarget(ev.target)) return; // jamais pendant la saisie d'une note
+    document.removeEventListener("pointerdown", onTap, true);
+    renewArmed = false;
+    if (!navigator.onLine || (tokenValid() && token!.expires_at - Date.now() > RENEW_BEFORE)) return;
+    void connectGoogle(false, true).catch(() => undefined);
+  };
+  document.addEventListener("pointerdown", onTap, true);
+}
+
+export function autoTick(force = false) {
+  if (!state.linked || !navigator.onLine) return;
+  if (!tokenValid() || token!.expires_at - Date.now() < RENEW_BEFORE) armRenew();
+  if (!tokenValid() || document.visibilityState === "hidden" || state.loading) return;
+  if (!force && Date.now() - lastAuto < REFRESH_EVERY) return;
+  lastAuto = Date.now();
+  void refreshAgenda().catch(() => undefined);
+}
+
+let autoStarted = false;
+function startAutoRefresh() {
+  if (autoStarted || typeof window === "undefined") return;
+  autoStarted = true;
+  lastAuto = Date.now();
+  setInterval(() => autoTick(), 60 * 1000);
+  window.addEventListener("online", () => autoTick(true));
+  window.addEventListener("focus", () => autoTick());
+  document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && autoTick());
+  autoTick();
 }
 
 export async function disconnectGoogle() {
@@ -285,14 +339,23 @@ export async function syncUsualTimes(events: AgendaEvent[]): Promise<string[]> {
     }
   }
   const changed: string[] = [];
+  const several: string[] = [];
+  let same = 0;
   for (const [id, set_] of slots) {
-    if (set_.size !== 1) continue;
-    const [wd, time] = [...set_][0]!.split("|") as [Patient["usual_day"], string];
     const p = patients.find((x) => x.id === id)!;
-    if (p.usual_day === wd && (p.usual_time ?? "").slice(0, 5) === time) continue;
+    if (set_.size !== 1) {
+      several.push(p.first_name);
+      continue;
+    }
+    const [wd, time] = [...set_][0]!.split("|") as [Patient["usual_day"], string];
+    if (p.usual_day === wd && (p.usual_time ?? "").slice(0, 5) === time) {
+      same++;
+      continue;
+    }
     await update("patients", id, { usual_day: wd, usual_time: time });
     changed.push(`${p.first_name} ${p.last_name}`.trim());
   }
+  set({ hours: { updated: changed, same, several } });
   return changed;
 }
 
@@ -319,6 +382,7 @@ export async function initAgenda() {
     tasksGranted: Boolean(token?.scope?.includes("/auth/tasks")),
   });
   if (linked && tokenValid()) void refreshAgenda().catch(() => undefined);
+  startAutoRefresh();
 }
 
 /** Actualise si possible, sinon ouvre la reconnexion (depuis un clic). */

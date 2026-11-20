@@ -271,6 +271,8 @@ export interface Activity extends SyncedRow {
   template: string;
   rubric: "fait" | "observe" | "reprendre";
   sort_order: number;
+  /** Catégorie choisie par la praticienne (ex. « Clavier / ordinateur »), facultative. */
+  category?: string | null;
 }
 
 /** Brouillon local d'un éditeur (jamais synchronisé) : protège la saisie en cours. */

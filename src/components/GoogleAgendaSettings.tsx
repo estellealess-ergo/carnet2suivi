@@ -46,8 +46,9 @@ export function GoogleAgendaSettings() {
       </p>
       {s.linked && (
         <p className="-mt-2 mb-3 text-sm text-ink-soft">
-          {s.lastFetch ? `Rendez-vous mis à jour le ${fmtDateTime(s.lastFetch)}.` : "Pas encore de rendez-vous lus."} Google donne un accès d'une heure :
-          ensuite, « Actualiser » te redemande ton compte en un clic.
+          {s.lastFetch ? `Rendez-vous mis à jour le ${fmtDateTime(s.lastFetch)}.` : "Pas encore de rendez-vous lus."} Tout se met à jour seul (toutes les 10 minutes et dès que
+          le wifi revient). Google donne un accès d'une heure : il est renouvelé au clic suivant dans l'app (une petite
+          fenêtre Google s'ouvre et se referme seule).
         </p>
       )}
       {s.error && <p className="mb-3 text-sm text-late">{s.error}</p>}
@@ -68,6 +69,18 @@ export function GoogleAgendaSettings() {
           </>
         )}
       </div>
+
+      {s.linked && s.hours && (
+        <div className="mb-4 rounded-md border border-rule bg-paper p-3 text-sm">
+          <p className="font-semibold">Horaires des fiches d'après l'agenda</p>
+          <p className="text-ink-soft">
+            {s.hours.updated.length ? `${s.hours.updated.length} fiche(s) mise(s) à jour : ${s.hours.updated.join(", ")}. ` : ""}
+            {s.hours.same} fiche(s) déjà à la bonne heure.
+            {s.hours.several.length ? ` Plusieurs créneaux par semaine, à régler à la main : ${s.hours.several.join(", ")}.` : ""}
+          </p>
+          <p className="text-xs text-ink-soft">Seuls les rendez-vous répétés chaque semaine servent à régler le jour et l'heure habituels.</p>
+        </div>
+      )}
 
       {s.linked && <TasksSettings />}
 

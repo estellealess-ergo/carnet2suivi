@@ -154,7 +154,8 @@ export async function syncTasks(): Promise<void> {
       ...((await db.tasks.toArray()) as Task[]).map((row) => ({ kind: "task" as const, row, patient: row.patient_id ? (patients.get(row.patient_id) ?? null) : null })),
       ...((await db.forecasts.toArray()) as Forecast[]).map((row) => ({ kind: "forecast" as const, row, patient: patients.get(row.patient_id) ?? null })),
     ];
-    const linked = new Set<string>();
+    // Tâches Google déjà reliées (y compris par l'autre appareil, via la liaison directe).
+    const linked = new Set<string>(items.map((i) => i.row.google_task_id).filter((x): x is string => Boolean(x)));
     const snaps = (await getMeta<Record<string, Snap>>("gtasks_snap")) ?? {};
     const nextSnaps: Record<string, Snap> = {};
     applying = true;
@@ -163,14 +164,22 @@ export async function syncTasks(): Promise<void> {
       const e = expected(it, withFirstName);
       const gid = it.row.google_task_id;
       const g = gid ? byGid.get(gid) : undefined;
-      if (gid) linked.add(gid);
       const table = it.kind === "task" ? "tasks" : "forecasts";
 
       if (!gid) {
         // Nouveau côté app : on crée la tâche Google (sauf si déjà faite ou retirée).
         if (e.remove || e.done) continue;
+        // Déjà envoyée par l'autre appareil (téléphone ou ordinateur) : on la relie au lieu d'en créer une seconde.
+        const twin = google.find((x) => !x.deleted && !linked.has(x.id) && (x.title ?? "").trim() === e.title);
+        if (twin) {
+          linked.add(twin.id);
+          await update(table, it.row.id, { google_task_id: twin.id });
+          nextSnaps[twin.id] = snapOfGoogle(twin);
+          continue;
+        }
         const made = await call<GTask>(`/lists/${list}/tasks`, { method: "POST", body: JSON.stringify({ title: e.title, due: e.due ?? undefined, status: "needsAction" }) });
         await update(table, it.row.id, { google_task_id: made.id });
+        linked.add(made.id);
         nextSnaps[made.id] = snapOfApp(e);
         pushed++;
         continue;
