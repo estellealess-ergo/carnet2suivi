@@ -13,7 +13,10 @@ import {
   Users,
 } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { AgendaStatus, AssociateDialog, useAgendaOn } from "@/components/AgendaBlock";
+import { agendaEntries } from "@/lib/agenda-match";
+import { agendaTokenValid, fetchAround, getIgnored, useAgendaState } from "@/lib/google-agenda";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { ForecastForm, ForecastRow, PinnedInfo } from "@/components/bits";
 import { NoteModal, sanitize } from "@/components/NoteEditor";
@@ -24,7 +27,7 @@ import { db } from "@/lib/db";
 import { PLACE_LABEL, fullName } from "@/lib/labels";
 import { useForecasts, useNotes, usePatients } from "@/lib/queries";
 import { create, remove, update } from "@/lib/repo";
-import { groupNotesUrl, groupsOf, patientsForDay, weekParity, type DayEntry, type DayGroup } from "@/lib/schedule";
+import { applyDayChanges, groupNotesUrl, groupsOf, patientsForDay, weekParity, type DayEntry, type DayGroup } from "@/lib/schedule";
 import type { Patient, Weekday } from "@/lib/types";
 
 /**
@@ -50,7 +53,24 @@ export function Journee() {
   const toggle = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : s.length >= MAX_SIDE_BY_SIDE ? s : [...s, id]));
 
-  const { entries, cancelled } = useMemo(() => patientsForDay(patients, changes, day), [patients, changes, day]);
+  // Agenda Google relié et lu pour ce jour : les horaires viennent de l'agenda.
+  const agendaOn = useAgendaOn();
+  const agenda = useAgendaState();
+  const covered = agenda.days.includes(day);
+  const dayEvents = useLiveQuery(() => db.agenda_events.where("day").equals(day).toArray(), [day]) ?? [];
+  const [ignored, setIgnored] = useState<Set<string>>(new Set());
+  useEffect(() => void getIgnored().then((l) => setIgnored(new Set(l))), [day]);
+  useEffect(() => {
+    if (agendaOn && !covered && agendaTokenValid()) void fetchAround(day).catch(() => undefined);
+  }, [agendaOn, covered, day]);
+  const fromAgenda = agendaOn && covered;
+  const [associate, setAssociate] = useState<string | null>(null);
+
+  const { entries, cancelled, unmatched } = useMemo(() => {
+    if (!fromAgenda) return { ...patientsForDay(patients, changes, day), unmatched: [] as string[] };
+    const a = agendaEntries(dayEvents, patients, ignored);
+    return { ...applyDayChanges(a.entries, patients, changes, day), unmatched: a.unmatched };
+  }, [fromAgenda, dayEvents, patients, changes, day, ignored]);
   const groups = useMemo(() => groupsOf(entries), [entries]);
   const groupOf = (id: string) => groups.find((g) => g.entries.some((e) => e.patient.id === id));
   const openNote = (p: Patient) => {
@@ -94,6 +114,31 @@ export function Journee() {
         }
       />
 
+      {agendaOn && (
+        <div className="mb-3">
+          <AgendaStatus day={day} />
+          {!covered && (
+            <p className="-mt-2 mb-2 text-sm text-ink-soft">
+              L'agenda n'a pas encore été lu pour ce jour : les horaires viennent des fiches. Clique sur « Actualiser » pour le lire.
+            </p>
+          )}
+          {unmatched.length > 0 && (
+            <p className="text-sm text-ink-soft">
+              Dans l'agenda mais non reconnu :{" "}
+              {unmatched.map((n, i) => (
+                <span key={n}>
+                  {i > 0 && ", "}
+                  <button type="button" className="font-semibold text-pen underline" onClick={() => setAssociate(n)}>
+                    {n}
+                  </button>
+                </span>
+              ))}
+            </p>
+          )}
+          <AssociateDialog name={associate} patients={patients} onClose={() => setAssociate(null)} />
+        </div>
+      )}
+
       {groups.length > 0 && <GroupBanners groups={groups} day={day} />}
 
       {entries.length === 0 ? (
@@ -112,7 +157,7 @@ export function Journee() {
           {entries.map((entry, i) => (
             <li
               key={entry.patient.id}
-              draggable
+              draggable={!fromAgenda}
               onDragStart={() => setDragId(entry.patient.id)}
               onDragEnd={() => setDragId(null)}
               onDragOver={(e) => e.preventDefault()}
@@ -133,8 +178,8 @@ export function Journee() {
                 selected={selected.includes(entry.patient.id)}
                 selectable={selected.includes(entry.patient.id) || selected.length < MAX_SIDE_BY_SIDE}
                 onToggle={() => toggle(entry.patient.id)}
-                first={i === 0}
-                last={i === entries.length - 1}
+                first={fromAgenda || i === 0}
+                last={fromAgenda || i === entries.length - 1}
                 onCancel={async () => {
                   if (entry.added) {
                     const c = changeFor(entry.patient.id, "ajout");

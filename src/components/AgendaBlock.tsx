@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { normName, slotsOfDay, type AgendaSlot } from "@/lib/agenda-match";
 import { db } from "@/lib/db";
-import { getIgnored, ignoreName, refreshOrReconnect, useAgendaState } from "@/lib/google-agenda";
+import { clearUpdatedFiches, getIgnored, ignoreName, refreshOrReconnect, useAgendaState } from "@/lib/google-agenda";
 import { fullName } from "@/lib/labels";
 import { usePatients } from "@/lib/queries";
 import { update } from "@/lib/repo";
@@ -28,7 +28,7 @@ function useIgnored() {
 }
 
 /** Barre d'état et « Actualiser » au-dessus des colonnes de l'accueil. */
-export function AgendaStatus() {
+export function AgendaStatus({ day }: { day?: string }) {
   const s = useAgendaState();
   if (!s.linked) return null;
   return (
@@ -43,7 +43,7 @@ export function AgendaStatus() {
         variant="ghost"
         disabled={s.loading}
         onClick={() =>
-          void refreshOrReconnect()
+          void refreshOrReconnect(day)
             .then(() => toast("Rendez-vous à jour"))
             .catch((e) => toast((e as Error).message, "error"))
         }
@@ -51,6 +51,14 @@ export function AgendaStatus() {
         <RefreshCw className={cx("size-4", s.loading && "animate-spin")} /> {s.active ? "Actualiser" : "Reconnecter"}
       </Button>
       {s.error && <span className="text-late">{s.error}</span>}
+      {s.updatedFiches.length > 0 && (
+        <span className="w-full rounded-md bg-pen-soft px-2 py-1 text-ink">
+          Horaires mis à jour d'après l'agenda : {s.updatedFiches.join(", ")}.{" "}
+          <button type="button" className="font-semibold text-pen underline" onClick={clearUpdatedFiches}>
+            OK
+          </button>
+        </span>
+      )}
     </div>
   );
 }
@@ -146,7 +154,7 @@ export function AgendaDay({ day }: { day: string }) {
 }
 
 /** Associer un nom de l'agenda à un patient existant (mémorisé dans sa fiche). Rien n'est créé. */
-function AssociateDialog({ name, patients, onClose }: { name: string | null; patients: Patient[]; onClose: () => void }) {
+export function AssociateDialog({ name, patients, onClose }: { name: string | null; patients: Patient[]; onClose: () => void }) {
   const [pid, setPid] = useState("");
   useEffect(() => setPid(""), [name]);
   const sorted = useMemo(

@@ -82,3 +82,16 @@ export function nextUsualSession(p: Pick<Patient, "usual_day" | "frequency" | "w
   }
   return null;
 }
+
+/** Ajouts et annulations de la journée appliqués à une liste de départ (ex. les rendez-vous de l'agenda). */
+export function applyDayChanges(base: DayEntry[], patients: Patient[], changes: DayChange[], day: IsoDay): { entries: DayEntry[]; cancelled: Patient[] } {
+  const ofDay = changes.filter((c) => c.day === day && !c.deleted_at);
+  const cancelledIds = new Set(ofDay.filter((c) => c.kind === "annulation").map((c) => c.patient_id));
+  const entries = base.filter((e) => !cancelledIds.has(e.patient.id));
+  for (const c of ofDay.filter((x) => x.kind === "ajout")) {
+    const p = patients.find((x) => x.id === c.patient_id);
+    if (p && !entries.some((e) => e.patient.id === p.id)) entries.push({ patient: p, time: c.time ?? p.usual_time, added: true });
+  }
+  entries.sort((a, b) => (a.time ?? "99").localeCompare(b.time ?? "99"));
+  return { entries, cancelled: base.filter((e) => cancelledIds.has(e.patient.id)).map((e) => e.patient) };
+}

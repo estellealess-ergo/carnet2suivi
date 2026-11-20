@@ -304,4 +304,6 @@ export interface AgendaEvent {
   time: string;
   end: string | null;
   title: string;
+  /** Rendez-vous répété (série) : sert à mettre à jour le jour et l'heure habituels des fiches. */
+  recurring?: boolean;
 }

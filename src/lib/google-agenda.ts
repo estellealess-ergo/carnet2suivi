@@ -10,12 +10,15 @@
 import { useSyncExternalStore } from "react";
 import { addDays } from "./dates";
 import { db, getMeta, setMeta } from "./db";
-import type { AgendaEvent, IsoDay } from "./types";
+import { matchName, normName, parseTitle } from "./agenda-match";
+import { weekdayOf } from "./dates";
+import { update } from "./repo";
+import type { AgendaEvent, IsoDay, Patient } from "./types";
 
 export const AGENDA_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
 const TZ = "Europe/Paris";
-/** Aujourd'hui et les deux jours suivants. */
-export const AGENDA_DAYS = 3;
+/** Lecture : la semaine qui vient (l'accueil en montre 3 jours, Ma journée peut en demander d'autres). */
+export const AGENDA_DAYS = 8;
 
 type Token = { access_token: string; expires_at: number };
 
@@ -29,9 +32,13 @@ export interface AgendaState {
   loading: boolean;
   lastFetch: string | null;
   error: string | null;
+  /** Jours déjà lus dans l'agenda (copie locale disponible). */
+  days: string[];
+  /** Fiches dont le jour / l'heure habituels viennent d'être mis à jour d'après l'agenda. */
+  updatedFiches: string[];
 }
 
-let state: AgendaState = { clientId: null, linked: false, email: null, active: false, loading: false, lastFetch: null, error: null };
+let state: AgendaState = { clientId: null, linked: false, email: null, active: false, loading: false, lastFetch: null, error: null, days: [], updatedFiches: [] };
 const listeners = new Set<() => void>();
 function set(p: Partial<AgendaState>) {
   state = { ...state, ...p };
@@ -153,8 +160,8 @@ export async function disconnectGoogle() {
       /* hors ligne : l'accès expirera de lui-même dans l'heure */
     }
   }
-  await Promise.all([db.agenda_events.clear(), db.meta.bulkDelete(["agenda_linked", "agenda_token", "agenda_email", "agenda_last_fetch"])]);
-  set({ linked: false, active: false, email: null, lastFetch: null, error: null });
+  await Promise.all([db.agenda_events.clear(), db.meta.bulkDelete(["agenda_linked", "agenda_token", "agenda_email", "agenda_last_fetch", "agenda_days"])]);
+  set({ linked: false, active: false, email: null, lastFetch: null, error: null, days: [], updatedFiches: [] });
 }
 
 export async function saveClientId(id: string) {
@@ -165,7 +172,7 @@ export async function saveClientId(id: string) {
 
 /* ------------------------------------------------------------------ lecture des rendez-vous */
 
-type GEvent = { id: string; status?: string; summary?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
+type GEvent = { id: string; status?: string; summary?: string; recurringEventId?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
 
 /** Événements Google → rendez-vous de l'app (annulés et journées entières ignorés). */
 export function toAgendaEvents(items: GEvent[]): AgendaEvent[] {
@@ -173,20 +180,39 @@ export function toAgendaEvents(items: GEvent[]): AgendaEvent[] {
     .filter((e) => e.status !== "cancelled" && e.start?.dateTime)
     .map((e) => {
       const { day, time } = parisDayTime(e.start!.dateTime!);
-      return { id: e.id, day, time, end: e.end?.dateTime ? parisDayTime(e.end.dateTime).time : null, title: (e.summary ?? "").trim() || "(sans titre)" };
+      return {
+        id: e.id,
+        day,
+        time,
+        end: e.end?.dateTime ? parisDayTime(e.end.dateTime).time : null,
+        title: (e.summary ?? "").trim() || "(sans titre)",
+        recurring: Boolean(e.recurringEventId),
+      };
     });
 }
 
-/** Lit aujourd'hui et les deux jours suivants. Garde l'ancienne copie si Google n'est pas joignable. */
-export async function refreshAgenda(): Promise<number> {
+/** Lit la semaine qui vient (à partir d'aujourd'hui). */
+export function refreshAgenda(): Promise<number> {
+  const first = parisToday();
+  return fetchRange(first, addDays(first, AGENDA_DAYS));
+}
+
+/** Lit un jour précis (Ma journée sur une autre date), avec la semaine qui suit. */
+export function fetchAround(day: IsoDay): Promise<number> {
+  return fetchRange(day, addDays(day, 7));
+}
+
+/**
+ * Lit les rendez-vous de [first, end[ (heure de Paris). Garde l'ancienne copie si Google n'est pas
+ * joignable. Seule requête : GET sur la liste des événements.
+ */
+async function fetchRange(first: IsoDay, end: IsoDay): Promise<number> {
   if (!tokenValid()) {
     set({ active: false });
     throw new Error("La connexion à Google a expiré : clique sur « Reconnecter ».");
   }
   set({ loading: true, error: null });
   try {
-    const first = parisToday();
-    const end = addDays(first, AGENDA_DAYS);
     const q = new URLSearchParams({
       timeMin: `${first}T00:00:00${parisOffset(first)}`,
       timeMax: `${end}T00:00:00${parisOffset(end)}`,
@@ -194,8 +220,8 @@ export async function refreshAgenda(): Promise<number> {
       orderBy: "startTime",
       maxResults: "250",
       timeZone: TZ,
-      // Le strict nécessaire : titre et horaires.
-      fields: "summary,items(id,status,summary,start,end)",
+      // Le strict nécessaire : titre, horaires, et si le rendez-vous est répété.
+      fields: "summary,items(id,status,summary,start,end,recurringEventId)",
     });
     const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`, {
       method: "GET",
@@ -209,17 +235,23 @@ export async function refreshAgenda(): Promise<number> {
     if (!res.ok) throw new Error(res.status === 403 ? "Google refuse l'accès : vérifie que l'API Google Calendar est activée dans ton projet." : "Google Agenda n'a pas répondu.");
     const body = (await res.json()) as { summary?: string; items?: GEvent[] };
     const events = toAgendaEvents(body.items ?? []);
-    const days = new Set([0, 1, 2].map((n) => addDays(first, n)));
+    const days: string[] = [];
+    for (let d = first; d < end; d = addDays(d, 1)) days.push(d);
+    const inRange = new Set(days);
+    const oldest = addDays(parisToday(), -60);
     await db.transaction("rw", db.agenda_events, async () => {
-      // On remplace la copie de ces jours, et on efface les jours passés.
+      // On remplace la copie des jours lus, et on oublie ce qui a plus de deux mois.
       const old = await db.agenda_events.toArray();
-      await db.agenda_events.bulkDelete(old.filter((e) => days.has(e.day) || e.day < first).map((e) => e.id));
+      await db.agenda_events.bulkDelete(old.filter((e) => inRange.has(e.day) || e.day < oldest).map((e) => e.id));
       await db.agenda_events.bulkPut(events);
     });
+    const known = [...new Set([...state.days, ...days])].filter((d) => d >= oldest).sort();
     const at = new Date().toISOString();
-    await setMeta("agenda_last_fetch", at);
+    await Promise.all([setMeta("agenda_last_fetch", at), setMeta("agenda_days", known)]);
     if (body.summary?.includes("@")) await setMeta("agenda_email", body.summary);
-    set({ lastFetch: at, email: body.summary?.includes("@") ? body.summary : state.email, active: true });
+    set({ lastFetch: at, email: body.summary?.includes("@") ? body.summary : state.email, active: true, days: known });
+    const updated = await syncUsualTimes(events);
+    if (updated.length) set({ updatedFiches: updated });
     return events.length;
   } catch (e) {
     set({ error: e instanceof TypeError ? "Pas de connexion internet : le dernier planning connu reste affiché." : (e as Error).message });
@@ -229,25 +261,67 @@ export async function refreshAgenda(): Promise<number> {
   }
 }
 
+/**
+ * Horaires des fiches alignés sur l'agenda : pour un patient qui a un rendez-vous RÉPÉTÉ
+ * (toujours le même jour et la même heure dans la période lue), on met à jour le jour et
+ * l'heure habituels de sa fiche. Rien n'est écrit dans Google ; seules les fiches changent.
+ * Un patient vu à deux créneaux différents (deux séances par semaine…) n'est pas modifié.
+ */
+export async function syncUsualTimes(events: AgendaEvent[]): Promise<string[]> {
+  const patients = (await db.patients.toArray()).filter((p) => !p.deleted_at) as Patient[];
+  const ignored = new Set((await getIgnored()).map(normName));
+  const slots = new Map<string, Set<string>>();
+  for (const e of events.filter((x) => x.recurring)) {
+    for (const n of parseTitle(e.title).names) {
+      const p = matchName(n, patients, ignored).patient;
+      if (!p) continue;
+      slots.set(p.id, (slots.get(p.id) ?? new Set()).add(`${weekdayOf(e.day)}|${e.time}`));
+    }
+  }
+  const changed: string[] = [];
+  for (const [id, set_] of slots) {
+    if (set_.size !== 1) continue;
+    const [wd, time] = [...set_][0]!.split("|") as [Patient["usual_day"], string];
+    const p = patients.find((x) => x.id === id)!;
+    if (p.usual_day === wd && (p.usual_time ?? "").slice(0, 5) === time) continue;
+    await update("patients", id, { usual_day: wd, usual_time: time });
+    changed.push(`${p.first_name} ${p.last_name}`.trim());
+  }
+  return changed;
+}
+
 /** Au démarrage : relit l'état et, si l'accès est encore valable, actualise. */
 export async function initAgenda() {
-  const [clientId, linked, saved, email, lastFetch] = await Promise.all([
+  const [clientId, linked, saved, email, lastFetch, days] = await Promise.all([
     getMeta<string | null>("google_client_id"),
     getMeta<boolean>("agenda_linked"),
     getMeta<Token | null>("agenda_token"),
     getMeta<string>("agenda_email"),
     getMeta<string>("agenda_last_fetch"),
+    getMeta<string[]>("agenda_days"),
   ]);
   token = saved && saved.expires_at > Date.now() ? saved : null;
-  set({ clientId: clientId ?? null, linked: Boolean(linked), email: email ?? null, lastFetch: lastFetch ?? null, active: tokenValid() });
+  set({ clientId: clientId ?? null, linked: Boolean(linked), email: email ?? null, lastFetch: lastFetch ?? null, active: tokenValid(), days: days ?? [] });
   if (linked && tokenValid()) void refreshAgenda().catch(() => undefined);
 }
 
 /** Actualise si possible, sinon ouvre la reconnexion (depuis un clic). */
-export async function refreshOrReconnect() {
-  if (tokenValid()) return refreshAgenda();
-  await connectGoogle(false);
+export async function refreshOrReconnect(day?: IsoDay) {
+  const other = Boolean(day && day !== parisToday());
+  if (!tokenValid()) {
+    await connectGoogle(false); // relit déjà la semaine qui vient
+    if (other) await fetchAround(day!);
+    return;
+  }
+  await (other ? fetchAround(day!) : refreshAgenda());
 }
+
+export function clearUpdatedFiches() {
+  set({ updatedFiches: [] });
+}
+
+/** L'accès Google est-il valable maintenant (pour lire une autre date sans clic) ? */
+export const agendaTokenValid = () => tokenValid();
 
 /** Noms de l'agenda à ne plus proposer (ex. « Pilates »). */
 export async function getIgnored(): Promise<string[]> {

@@ -2,6 +2,7 @@
  * Lecture des titres de rendez-vous Google Agenda et correspondance avec les patients.
  * « Milo P. » → un patient ; « Groupe : Prénom N., Prénom N. » → plusieurs patients.
  */
+import type { DayEntry } from "./schedule";
 import type { AgendaEvent, Patient } from "./types";
 
 /** Comparaison sans accents, majuscules, points ni espaces en trop. */
@@ -69,4 +70,19 @@ export function slotsOfDay(events: AgendaEvent[], patients: Patient[], ignored: 
     const patientsHere = new Set(matches.filter((m) => m.patient).map((m) => m.patient!.id));
     return { day: evs[0]!.day, time, events: evs, group: parsed.some((p) => p.group) || patientsHere.size > 1, matches };
   });
+}
+
+/** Ma journée d'après l'agenda : un patient par ligne, à l'heure de son rendez-vous. */
+export function agendaEntries(events: AgendaEvent[], patients: Patient[], ignored: Set<string>): { entries: DayEntry[]; unmatched: string[] } {
+  const entries: DayEntry[] = [];
+  const unmatched: string[] = [];
+  for (const e of [...events].sort((a, b) => a.time.localeCompare(b.time))) {
+    for (const n of parseTitle(e.title).names) {
+      const m = matchName(n, patients, ignored);
+      if (m.patient) {
+        if (!entries.some((x) => x.patient.id === m.patient!.id)) entries.push({ patient: m.patient, time: e.time, added: false });
+      } else if (!m.ignored) unmatched.push(n);
+    }
+  }
+  return { entries, unmatched: [...new Set(unmatched)] };
 }
